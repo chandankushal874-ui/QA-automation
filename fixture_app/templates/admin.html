@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Admin Panel — Fixture App</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body>
+<nav><a href="/">Home</a></nav>
+<main>
+    <h1>🔒 Admin Panel</h1>
+    <p>This admin panel is at a non-obvious URL (<code>/internal/admin-panel</code>).</p>
+    <p>It should be discovered by brute-force endpoint scanning.</p>
+    <h2>System Info</h2>
+    <div id="admin-info">Loading...</div>
+</main>
+<script>
+fetch('/debug/info').then(r => r.json()).then(data => {
+    document.getElementById('admin-info').innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+});
+</script>
+</body>
+</html>

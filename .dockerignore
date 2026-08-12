@@ -1,0 +1,68 @@
+# Keep Docker build context tiny (source only — not local junk)
+
+# Python / venv
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+*.db
+
+# Runtime artifacts (mounted as volumes at runtime)
+reports/
+baselines/
+data/
+artifacts/
+screenshots/
+traces/
+test-results/
+
+# Frontend (built by frontend/Dockerfile)
+frontend/node_modules/
+frontend/dist/
+frontend/.convex/
+frontend/.git/
+frontend/**/*.md
+
+# Secrets / local env (compose injects env)
+.env
+.env.*
+!.env.production.example
+!.env.example
+
+# Git / IDE / OS
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+
+# Docs / notes (not needed in image)
+*.md
+*.pdf
+*.txt
+!pyproject.toml
+
+# Installer / host scripts (not needed in image)
+install.ps1
+install.sh
+start.bat
+start.sh
+scripts/
+
+# Docker meta (not needed inside image)
+Dockerfile
+docker-compose*.yml
+nginx/

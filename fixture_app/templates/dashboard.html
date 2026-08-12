@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Dashboard — Fixture App</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body>
+<nav><a href="/">Home</a><a href="/dashboard">Dashboard</a><a href="/profile">Profile</a><a href="/settings">Settings</a><a href="#" id="logout-btn">Logout</a></nav>
+<main>
+    <h1>Dashboard</h1>
+    <p>Welcome, {{ user.username }}! Role: {{ user.role }}</p>
+    <div id="dashboard-content">
+        <h2>Quick Stats</h2>
+        <p>Loading metrics...</p>
+    </div>
+</main>
+<script>
+// Hidden API reference — only in JS, not in DOM links
+fetch('/api/internal/metrics').then(r => r.json()).then(data => {
+    document.getElementById('dashboard-content').innerHTML = `
+        <h2>Quick Stats</h2>
+        <p>Uptime: ${data.uptime_seconds}s</p>
+        <p>Active Sessions: ${data.active_sessions}</p>
+        <p>Error Rate: ${data.error_rate}</p>
+    `;
+});
+// Another hidden endpoint reference
+const CONFIG_URL = '/api/internal/config';
+fetch(CONFIG_URL).then(r => r.json()).then(config => {
+    console.log('Feature flags loaded:', config);
+});
+document.getElementById('logout-btn').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', {method: 'POST'});
+    window.location.href = '/login';
+});
+</script>
+</body>
+</html>

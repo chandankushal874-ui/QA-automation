@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Products — Fixture App</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body>
+<nav><a href="/">Home</a><a href="/products">Products</a></nav>
+<main>
+    <h1>Products</h1>
+    <div id="products-list"></div>
+    <div id="pagination"></div>
+</main>
+<script>
+const currentPage = new URLSearchParams(window.location.search).get('page') || 1;
+async function loadProducts(page) {
+    const res = await fetch(`/api/products?page=${page}&limit=20`);
+    const data = await res.json();
+    const list = document.getElementById('products-list');
+    list.innerHTML = data.items.map(p => `<div class="product"><h3>${p.name}</h3><p>$${p.price} — ${p.category}</p></div>`).join('');
+    // Pagination with trap: shows links up to page 9999
+    const pag = document.getElementById('pagination');
+    let html = '';
+    if (data.has_prev) html += `<a href="/products?page=${page-1}">« Prev</a> `;
+    for (let i = Math.max(1, page-2); i <= Math.min(page+2, data.total_pages); i++) {
+        html += i == page ? `<strong>${i}</strong> ` : `<a href="/products?page=${i}">${i}</a> `;
+    }
+    if (data.has_next) html += `<a href="/products?page=${parseInt(page)+1}">Next »</a>`;
+    html += ` <span>(${data.total_pages} pages)</span>`;
+    pag.innerHTML = html;
+}
+loadProducts(currentPage);
+</script>
+</body>
+</html>

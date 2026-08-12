@@ -1,0 +1,37 @@
+# Secrets & local config — NEVER commit
+.env
+.env.*
+!.env.example
+!.env.production.example
+*.pem
+keys_output.txt
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Runtime data & artifacts
+data/
+reports/
+baselines/
+cbtp.db
+cbtp.db-*
+*.log
+.tok.tmp
+pgdata-main/
+redis8/
+loadtest.py
+stack.orchestrator.log
+
+# OS/editor
+.DS_Store
+Thumbs.db

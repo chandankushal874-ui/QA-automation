@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint with Ruff
+        run: |
+          ruff check src/ tests/
+          ruff format --check src/ tests/
+
+      - name: Type check with mypy
+        run: |
+          mypy src/ --ignore-missing-imports
+
+      - name: Run tests
+        run: |
+          pytest tests/ -v --tb=short -m "not integration and not browser and not slow"
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci --legacy-peer-deps
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          # Ignore lint errors during CI compilation if necessary, or just run full build
+          npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [quality, frontend]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cbtp
+          POSTGRES_PASSWORD: cbtp_dev_password
+          POSTGRES_DB: cbtp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium firefox webkit
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://cbtp:cbtp_dev_password@localhost:5432/cbtp
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          pytest tests/ -v --tb=short -m "integration or browser"
+
+      - name: Install Allure CLI
+        if: always()
+        run: |
+          npm install -g allure-commandline
+
+      - name: Generate Allure Report
+        if: always()
+        run: |
+          allure generate reports/allure-results/ --clean -o allure-report || true
+
+      - name: Upload Allure Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report/
+          retention-days: 30
+
+      - name: Upload Trace Files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: reports/traces/
+          retention-days: 14

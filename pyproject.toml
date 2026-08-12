@@ -1,0 +1,166 @@
+[project]
+name = "cross-browser-testing-platform"
+version = "0.1.0"
+description = "Autonomous cross-browser web testing platform — discovers endpoints, tests across Chromium/Firefox/WebKit, identifies bugs, suggests fixes."
+requires-python = ">=3.12"
+readme = "README.md"
+license = {text = "MIT"}
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "gunicorn>=22.0.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "python-multipart>=0.0.9",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.35",
+    "asyncpg>=0.30.0",
+    "psycopg2-binary>=2.9.9",
+    "alembic>=1.13.0",
+
+    # Redis / Job Queue
+    "redis>=5.1.0",
+    "rq>=1.16.0",
+
+    # Browser automation
+    "playwright>=1.48.0",
+    "playwright-stealth>=1.0.6",
+
+    # HTTP client
+    "httpx>=0.27.0",
+
+    # S3-compatible storage
+    "boto3>=1.35.0",
+
+    # Auth utilities
+    "pyotp>=2.9.0",
+    "pyjwt>=2.9.0",
+
+    # LLM provider (OpenRouter)
+    "openai>=1.50.0",
+
+    # Remote sandbox for fix verification (Step W)
+    "e2b-code-interpreter>=1.0.0",
+
+    # Alternative remote sandbox (Daytona) — preferred for sub-90ms cold starts
+    "daytona>=0.199.0",
+
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "rich>=13.8.0",
+    "jinja2>=3.1.4",
+
+    # Visual regression testing
+    "Pillow>=10.4.0",
+
+    # Allure reporting
+    "allure-python-commons>=2.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-playwright>=0.5.2",
+    "pytest-cov>=5.0.0",
+    "hypothesis>=6.112.0",
+
+    # Linting & type checking
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+
+    # Pre-commit
+    "pre-commit>=3.8.0",
+
+    # Type stubs
+    "types-redis>=4.6.0",
+    "types-boto3>=1.35.0",
+    "boto3-stubs>=1.35.0",
+]
+
+[build-system]
+requires = ["setuptools>=70.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",    # line length handled by formatter
+    "B008",    # FastAPI Depends() in route signatures is the correct pattern
+    "RUF002",  # EN dash in docstrings is intentional punctuation, not a typo
+    "RUF003",  # EN dash in comments is intentional punctuation, not a typo
+    "RUF012",  # SQLAlchemy type_annotation_map is a class-level dict by design
+    "TC002",   # third-party typing imports used at runtime for FastAPI/Pydantic
+    "TC003",   # stdlib typing imports used at runtime (not type-checking only)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B904"]  # test helpers don't need raise-from chains
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_untyped_decorators = false  # FastAPI decorators
+plugins = ["pydantic.mypy"]
+disable_error_code = [
+    "union-attr",
+    "attr-defined",
+    "no-untyped-def",
+    "arg-type",
+    "assignment",
+    "no-any-return",
+    "dict-item",
+    "var-annotated",
+    "return-value",
+    "no-untyped-call",
+    "unused-ignore",
+    "call-arg",
+    "misc",
+    "operator",
+    "list-item",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "playwright.*",
+    "rq.*",
+    "pyotp.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests requiring external services (Redis, Postgres)",
+    "browser: marks tests requiring Playwright browsers",
+    "slow: marks slow-running tests",
+]

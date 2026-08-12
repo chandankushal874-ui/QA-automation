@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Settings — Fixture App</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body>
+<nav><a href="/">Home</a><a href="/dashboard">Dashboard</a><a href="/profile">Profile</a><a href="/settings">Settings</a></nav>
+<main>
+    <h1>Account Settings</h1>
+    <p>Username: {{ user.username }}</p>
+    <hr>
+    <h2 style="color: red;">Danger Zone</h2>
+    <p>Once you delete your account, there is no going back.</p>
+    <button id="delete-account-btn" class="danger-btn"
+            data-action="delete" data-confirm="Are you sure? This cannot be undone!">
+        Delete Account
+    </button>
+    <button id="cancel-subscription-btn" class="danger-btn">Cancel Subscription</button>
+    <form id="purchase-form" action="/api/purchase" method="POST" style="display:none;">
+        <button type="submit">Purchase Premium ($99.99)</button>
+    </form>
+</main>
+<script>
+document.getElementById('delete-account-btn').addEventListener('click', async () => {
+    if (confirm('Are you sure you want to DELETE your account? This is permanent!')) {
+        const res = await fetch('/api/account/delete', {method: 'DELETE'});
+        if (res.ok) alert('Account deleted!');
+    }
+});
+</script>
+</body>
+</html>

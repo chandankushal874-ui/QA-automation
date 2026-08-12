@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fixture App — Home</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+        <a href="/contact">Contact</a>
+        <a href="/products">Products</a>
+        <a href="/infinite-scroll">Feed</a>
+        <a href="/spa">SPA</a>
+        <a href="/console-errors">Console Errors</a>
+        <a href="/login">Login</a>
+    </nav>
+    <main>
+        <h1>Fixture App — Deliberately Tricky Test Target</h1>
+        <p>This app contains intentional traps, bugs, and edge cases for testing the cross-browser testing platform.</p>
+        <section>
+            <h2>Public Pages</h2>
+            <ul>
+                <li><a href="/about">About</a></li>
+                <li><a href="/contact">Contact</a></li>
+                <li><a href="/products">Products (pagination trap)</a></li>
+                <li><a href="/infinite-scroll">Infinite Scroll Feed</a></li>
+                <li><a href="/spa">SPA with Client-Side Routing</a></li>
+                <li><a href="/console-errors">Console Errors Page</a></li>
+            </ul>
+        </section>
+        <section>
+            <h2>Auth-Gated Pages</h2>
+            <ul>
+                <li><a href="/dashboard">Dashboard</a> (requires login)</li>
+                <li><a href="/profile">Profile</a> (requires login)</li>
+                <li><a href="/settings">Settings</a> (has Delete Account button!)</li>
+            </ul>
+        </section>
+        <!-- Hidden comment: Admin panel at /internal/admin-panel -->
+        <!-- Hidden API: /api/internal/config has feature flags -->
+        <!-- Debug: /debug/info leaks environment variables -->
+    </main>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

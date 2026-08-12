@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>SPA — Fixture App</title><link rel="stylesheet" href="/static/css/style.css"></head>
+<body>
+<nav><a href="/">Home</a><a href="/spa">SPA</a></nav>
+<main>
+    <h1>Single Page Application</h1>
+    <p>This page uses client-side-only routing — the URL never changes.</p>
+    <div id="spa-nav">
+        <button onclick="showView('home')" class="spa-btn">Home</button>
+        <button onclick="showView('products')" class="spa-btn">Products</button>
+        <button onclick="showView('settings')" class="spa-btn">Settings</button>
+        <button onclick="showView('about')" class="spa-btn">About</button>
+        <button onclick="showView('hidden')" class="spa-btn">Hidden Section</button>
+    </div>
+    <div id="spa-content">
+        <div id="view-home" class="spa-view active">
+            <h2>SPA Home</h2><p>Welcome to the SPA home view.</p>
+        </div>
+        <div id="view-products" class="spa-view" style="display:none;">
+            <h2>SPA Products</h2><p>Product listing within the SPA.</p>
+            <ul id="spa-products"></ul>
+        </div>
+        <div id="view-settings" class="spa-view" style="display:none;">
+            <h2>SPA Settings</h2><p>Settings within the SPA.</p>
+        </div>
+        <div id="view-about" class="spa-view" style="display:none;">
+            <h2>SPA About</h2><p>About section within the SPA.</p>
+        </div>
+        <div id="view-hidden" class="spa-view" style="display:none;">
+            <h2>Hidden Section</h2><p>This section is only reachable via client-side navigation.</p>
+            <p>Secret data: <span id="secret-data">Loading...</span></p>
+        </div>
+    </div>
+</main>
+<script>
+function showView(name) {
+    document.querySelectorAll('.spa-view').forEach(v => v.style.display = 'none');
+    document.getElementById('view-' + name).style.display = 'block';
+    if (name === 'products') loadSpaProducts();
+    if (name === 'hidden') loadSecretData();
+}
+async function loadSpaProducts() {
+    const res = await fetch('/api/products?limit=5');
+    const data = await res.json();
+    const ul = document.getElementById('spa-products');
+    ul.innerHTML = data.items.map(p => `<li>${p.name} - $${p.price}</li>`).join('');
+}
+async function loadSecretData() {
+    // Hidden API call only triggered by SPA navigation
+    const res = await fetch('/api/internal/config');
+    const data = await res.json();
+    document.getElementById('secret-data').textContent = JSON.stringify(data.feature_flags);
+}
+</script>
+</body>
+</html>

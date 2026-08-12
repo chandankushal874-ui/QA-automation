@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Console Errors — Fixture App</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- CSP meta tag that will cause violations -->
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'; img-src 'self';">
+</head>
+<body>
+<nav><a href="/">Home</a><a href="/console-errors">Console Errors</a></nav>
+<main>
+    <h1>Console Errors Page</h1>
+    <p>This page intentionally triggers various console errors for testing.</p>
+
+    <!-- Broken image — resource load failure -->
+    <img src="/static/images/nonexistent-image.png" alt="Broken image">
+
+    <!-- Mixed content attempt (will show warning on HTTPS) -->
+    <div id="error-output"></div>
+</main>
+
+<script>
+// === 1. Uncaught TypeError ===
+setTimeout(() => {
+    const obj = null;
+    try { /* intentionally commented out the try body to cause error below */ } catch(e) {}
+    // This will throw: Cannot read properties of null
+    console.log(obj.nonexistent.property);
+}, 1000);
+
+// === 2. Unhandled Promise Rejection ===
+setTimeout(() => {
+    new Promise((resolve, reject) => {
+        reject(new Error('Intentional unhandled promise rejection'));
+    });
+}, 2000);
+
+// === 3. CORS error (fetch to different origin) ===
+setTimeout(() => {
+    fetch('https://httpbin.org/get', { mode: 'cors' })
+        .catch(err => console.error('CORS fetch failed:', err));
+}, 1500);
+
+// === 4. Fetch to non-existent API ===
+setTimeout(() => {
+    fetch('/api/nonexistent-endpoint')
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .catch(err => console.error('API call failed:', err));
+}, 2500);
+
+// === 5. Deprecation warning ===
+console.warn('DeprecationWarning: This feature will be removed in the next version');
+
+// === 6. React-like error (simulated) ===
+console.error('Warning: React does not recognize the `customProp` prop on a DOM element.');
+
+// === 7. Reference to hidden endpoint in JS ===
+const HIDDEN_ADMIN_API = '/api/internal/users';
+const GRAPHQL_ENDPOINT = '/graphql';
+
+// === 8. CSP violation attempt (loading external script) ===
+setTimeout(() => {
+    const script = document.createElement('script');
+    script.src = 'https://evil-cdn.example.com/malicious.js';
+    document.head.appendChild(script);
+}, 3000);
+</script>
+</body>
+</html>

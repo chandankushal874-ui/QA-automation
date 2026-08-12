@@ -1,0 +1,21 @@
+# Frontend build context exclusions — keeps the image build fast and correct.
+# Without this, `COPY . .` in the Dockerfile would overwrite the container's
+# freshly-installed node_modules with the host's (platform-incompatible) copy.
+
+node_modules/
+dist/
+.convex/
+
+# Env files (baked config comes from build args / nginx proxy, not .env)
+.env
+.env.local
+.env.production
+
+# Misc
+*.md
+.vscode/
+.idea/
+.git/
+Thumbs.db
+.DS_Store
+Dockerfile

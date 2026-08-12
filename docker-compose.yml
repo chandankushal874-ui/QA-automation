@@ -1,0 +1,131 @@
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cbtp-postgres
+    environment:
+      POSTGRES_USER: cbtp
+      POSTGRES_PASSWORD: cbtp_dev_password
+      POSTGRES_DB: cbtp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cbtp"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cbtp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: cbtp-minio
+    environment:
+      MINIO_ROOT_USER: cbtp_minio
+      MINIO_ROOT_PASSWORD: cbtp_minio_password
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    image: cbtp-app:latest
+    build: .
+    container_name: cbtp-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://cbtp:cbtp_dev_password@postgres:5432/cbtp
+      - DATABASE_URL_SYNC=postgresql://cbtp:cbtp_dev_password@postgres:5432/cbtp
+      - REDIS_URL=redis://redis:6379/0
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY=cbtp_minio
+      - S3_SECRET_KEY=cbtp_minio_password
+      - S3_BUCKET_NAME=cbtp-artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: cbtp-app:latest
+    build: .
+    container_name: cbtp-worker
+    command: python src/workers/worker.py
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://cbtp:cbtp_dev_password@postgres:5432/cbtp
+      - DATABASE_URL_SYNC=postgresql://cbtp:cbtp_dev_password@postgres:5432/cbtp
+      - REDIS_URL=redis://redis:6379/0
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY=cbtp_minio
+      - S3_SECRET_KEY=cbtp_minio_password
+      - S3_BUCKET_NAME=cbtp-artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python src/workers/worker.py' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  fixture:
+    image: cbtp-app:latest
+    build: .
+    container_name: cbtp-fixture
+    command: python fixture_app/app.py
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rq-dashboard:
+    image: eoranged/rq-dashboard:latest
+    container_name: cbtp-rq-dashboard
+    ports:
+      - "9181:9181"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
