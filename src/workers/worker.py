@@ -17,7 +17,7 @@ import os
 import sys
 
 import redis
-from rq import Queue, Worker
+from rq import Queue, SimpleWorker, Worker
 
 # Add project root to Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
@@ -47,7 +47,9 @@ def main() -> None:
         listen = [q.strip() for q in env_queues.split(",") if q.strip()]
 
     queues = [Queue(name, connection=redis_conn) for name in listen]
-    worker = Worker(queues, connection=redis_conn)
+    # os.fork() does not exist on Windows — SimpleWorker executes jobs in-process.
+    worker_cls = SimpleWorker if sys.platform == "win32" else Worker
+    worker = worker_cls(queues, connection=redis_conn)
     logger.info("RQ worker polling queues: %s (isolation = job.owner_id)", ", ".join(listen))
     worker.work()
 
