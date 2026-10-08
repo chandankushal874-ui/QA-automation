@@ -61,8 +61,9 @@ def test_priority_score_console_urls_deprioritized():
 def test_priority_score_frontend_page_boost():
     # Frontend HTML pages should have higher priority (lower score) than console or debug endpoints
     frontend_page = calculate_priority_score("http://example.com/products", endpoint_type="page", source="dom_link")
-    console_url = calculate_priority_score("http://example.com/console", endpoint_type="debug", source="network_capture")
+    console_url = calculate_priority_score(
+        "http://example.com/console", endpoint_type="debug", source="network_capture"
+    )
 
     assert frontend_page < console_url
     assert console_url == 4.5
-

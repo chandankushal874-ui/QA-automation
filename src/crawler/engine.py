@@ -1332,7 +1332,13 @@ class CrawlEngine:
                 # 2. Skip raw network-captured XHR/API failures and non-page debug/console endpoints
                 # from being loaded as Playwright browser page targets (they remain in EndpointRegistry for reports)
                 is_frontend_page_link = (
-                    ep.source in (EndpointSource.DOM_LINK, EndpointSource.SITEMAP_XML, EndpointSource.USER_PROVIDED, EndpointSource.REDIRECT)
+                    ep.source
+                    in (
+                        EndpointSource.DOM_LINK,
+                        EndpointSource.SITEMAP_XML,
+                        EndpointSource.USER_PROVIDED,
+                        EndpointSource.REDIRECT,
+                    )
                     or ep.endpoint_type == EndpointType.PAGE
                 )
                 if not is_frontend_page_link and (

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from src.core.endpoint_registry import EndpointRegistry, EndpointSource, EndpointType
+from src.core.endpoint_registry import EndpointSource, EndpointType
 from src.discovery.prioritization import calculate_priority_score
 
 
 def test_crawl_priority_order_verification():
-    registry = EndpointRegistry(base_url="https://app.example.com")
-
     # Add frontend webpages
     frontend_pages = [
         ("https://app.example.com/", EndpointSource.USER_PROVIDED, EndpointType.PAGE),

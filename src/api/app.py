@@ -68,7 +68,9 @@ try:
         Base.metadata.create_all(bind=engine)
 except Exception as e:
     logger.error("PostgreSQL database connection failed: %s. PostgreSQL is required for running the platform.", e)
-    raise RuntimeError(f"PostgreSQL connection failed: {e}. Please ensure PostgreSQL 16 is running at {DATABASE_URL}") from e
+    raise RuntimeError(
+        f"PostgreSQL connection failed: {e}. Please ensure PostgreSQL 16 is running at {DATABASE_URL}"
+    ) from e
 
 
 def get_db():

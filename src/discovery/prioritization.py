@@ -121,7 +121,9 @@ def calculate_priority_score(
         h_score -= 0.5
 
     # Boost frontend HTML pages discovered via DOM/sitemap/user
-    if (source in ("dom_link", "sitemap_xml", "user_provided", "redirect") or endpoint_type == "page") and h_score > 0.3:
+    if (
+        source in ("dom_link", "sitemap_xml", "user_provided", "redirect") or endpoint_type == "page"
+    ) and h_score > 0.3:
         h_score -= 0.3
 
     # Bounded heuristic score: always between 0.1 and 5.0
@@ -131,4 +133,3 @@ def calculate_priority_score(
     score = (depth * 10.0) + h_score
 
     return score
-
