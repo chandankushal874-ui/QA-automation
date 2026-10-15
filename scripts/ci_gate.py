@@ -125,7 +125,13 @@ def main() -> None:
 
         sev = {"blocking": 0, "functional": 0, "visual": 0, "advisory": 0}
         by_cat: dict[str, int] = {}
+        quarantined = 0
         for issue in report.get("issues", []):
+            # Flaky quarantine: issues auto-quarantined (or human-confirmed flaky)
+            # by cross-crawl history are counted separately and NEVER fail the gate.
+            if issue.get("gate_exempt"):
+                quarantined += 1
+                continue
             sev[issue.get("severity", "advisory")] = sev.get(issue.get("severity", "advisory"), 0) + 1
             cat = issue.get("category", "unknown")
             by_cat[cat] = by_cat.get(cat, 0) + 1
@@ -136,6 +142,8 @@ def main() -> None:
         print(f"Endpoints: {report['endpoints_discovered']}")
         print(f"Issues:    blocking={sev['blocking']} functional={sev['functional']} "
               f"visual={sev['visual']} advisory={sev['advisory']}")
+        if quarantined:
+            print(f"Quarantined (flaky, gate-exempt): {quarantined}")
         for cat, n in sorted(by_cat.items(), key=lambda kv: -kv[1]):
             print(f"  - {cat}: {n}")
         print(f"Report:    {args.api_url}/jobs/{job_id}/dashboard")

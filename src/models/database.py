@@ -456,6 +456,48 @@ class Issue(Base):
     )
 
 
+class FlakyIssue(Base):
+    """Cross-crawl flakiness registry (per-owner / tenant-isolated).
+
+    One row per (owner, issue fingerprint). `history` is a bounded ring of
+    the last N crawl outcomes for that fingerprint (seen=True / absent=False).
+    A high flip rate between runs promotes the fingerprint through
+    observed → suspected → quarantined (auto) → confirmed (human decision,
+    sticky). Quarantined fingerprints are excluded from CI gate severity
+    counts but remain visible in a dedicated report bucket.
+
+    Kept separate from Issue: issues are per-job rows; this registry is the
+    *memory across jobs* that makes quarantine possible.
+    """
+
+    __tablename__ = "flaky_issues"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    fingerprint: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), default="", nullable=False)
+    category: Mapped[str] = mapped_column(String(50), default="", nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="", nullable=False)
+    first_seen_url: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    sample_url: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    # Bounded outcome ring: [True(seen), False(absent), True, ...] — latest last.
+    history: Mapped[list[Any]] = mapped_column(JSON_TYPE, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="observed", nullable=False)
+    flip_rate: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    samples: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_flaky_owner_fingerprint", "owner_id", "fingerprint", unique=True),
+        Index("ix_flaky_owner_status", "owner_id", "status"),
+    )
+
+
 class IssueOccurrence(Base):
     """A single occurrence of an issue on a specific page/browser."""
 

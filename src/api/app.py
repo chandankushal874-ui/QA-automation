@@ -197,6 +197,11 @@ from src.api.monitors import router as monitors_router  # noqa: E402
 from src.api.monitors import start_scheduler  # noqa: E402
 
 app.include_router(monitors_router)
+
+# Flaky-issue registry (cross-crawl quarantine, tenant-isolated)
+from src.api.flaky_registry import router as flaky_router  # noqa: E402
+
+app.include_router(flaky_router)
 with contextlib.suppress(Exception):
     start_scheduler(app)
 
@@ -294,6 +299,7 @@ class JobReportResponse(BaseModel):
     created_at: str
     started_at: str | None
     completed_at: str | None
+    quarantined_issues: int = 0
 
 
 # â”€â”€â”€ Helpers â”€â”€â”€
@@ -462,6 +468,21 @@ def run_background_crawl_job(job_id_str: str) -> None:
             logger.info(f"Job {job_id_str} marked COMPLETED")
         else:
             logger.info(f"Job {job_id_str} already terminal ({job.status.value}), not overriding")
+
+        # Flaky registry update: record this run's seen/absent outcomes per
+        # fingerprint BEFORE notifications so quarantine verdicts are fresh.
+        # Non-fatal by design (registry must never break the crawl pipeline).
+        with contextlib.suppress(Exception):
+            from src.api.flaky_registry import record_run_outcomes
+
+            job_issues = db.query(Issue).filter_by(job_id=job.id).all()
+            verdicts = record_run_outcomes(db, job.owner_id, job, job_issues)
+            quarantined = [fp for fp, st in verdicts.items() if st in ("quarantined", "confirmed")]
+            if quarantined:
+                logger.info(
+                    "Flaky registry: %d fingerprint(s) quarantined for job %s",
+                    len(quarantined), job_id_str[:8],
+                )
 
         # Monitor webhook notification (Slack-compatible) — non-fatal by design
         with contextlib.suppress(Exception):
@@ -1254,14 +1275,36 @@ async def get_job_report(
         if job:
             issues = db.query(Issue).filter_by(job_id=job.id).all()
 
+            # Flaky quarantine metadata for this owner (one query, tenant-scoped).
+            # Gate-exempt = quarantined/confirmed fingerprints (auto or human).
+            flaky_meta: dict[str, dict[str, Any]] = {}
+            try:
+                from src.api.flaky_registry import quarantine_status_map
+
+                flaky_meta = quarantine_status_map(db, job.owner_id)
+            except Exception:
+                flaky_meta = {}
+
             # Map issues output list
             issue_list = []
             console_summary = {"critical": 0, "error": 0, "warning": 0, "info": 0}
             error_type_summary: dict[str, int] = {}
+            quarantined_count = 0
             for iss in issues:
+                fp = str(getattr(iss, "fingerprint", ""))
+                meta = flaky_meta.get(fp) or {}
+                flaky_status = str(meta.get("status", "")) or None
+                gate_exempt = flaky_status in ("quarantined", "confirmed")
+                if gate_exempt:
+                    quarantined_count += 1
                 issue_list.append(
                     {
                         "id": str(iss.id),
+                        "fingerprint": fp,
+                        "flaky_status": flaky_status,
+                        "flip_rate": meta.get("flip_rate"),
+                        "flaky_samples": meta.get("samples"),
+                        "gate_exempt": gate_exempt,
                         "title": iss.title,
                         "description": iss.description,
                         "severity": iss.severity.value if iss.severity else "functional",
@@ -1354,6 +1397,7 @@ async def get_job_report(
                 created_at=job.created_at.isoformat(),
                 started_at=job.started_at.isoformat() if job.started_at else None,
                 completed_at=job.completed_at.isoformat() if job.completed_at else None,
+                quarantined_issues=quarantined_count,
             )
     except HTTPException:
         raise
