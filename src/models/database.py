@@ -137,6 +137,7 @@ class PlatformUser(Base):
     oidc_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     jobs: Mapped[list[Job]] = relationship(back_populates="owner")
+    api_tokens: Mapped[list[ApiToken]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_platform_users_username", "username"),
@@ -187,6 +188,75 @@ class AuditEvent(Base):
         Index("ix_audit_events_created_at", "created_at"),
         Index("ix_audit_events_actor_id", "actor_id"),
         Index("ix_audit_events_action", "action"),
+    )
+
+
+class ApiToken(Base):
+    """API token for CI/CD and programmatic access (hashed at rest).
+
+    The raw token value is only shown once at creation; we store only its
+    SHA-256 hash. Revocation = is_active flip (rows kept for audit).
+    """
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    user: Mapped[PlatformUser] = relationship(back_populates="api_tokens")
+
+    __table_args__ = (
+        Index("ix_api_tokens_user_id", "user_id"),
+    )
+
+
+class MonitorSchedule(Base):
+    """A recurring crawl schedule (site monitoring).
+
+    Owned by a platform user; fired jobs inherit owner_id isolation and
+    the owner's concurrent-slot limits. next_run_at is computed after each
+    fire, so schedules survive API restarts (state lives in the DB, not RAM).
+    """
+
+    __tablename__ = "monitor_schedules"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    browser_matrix: Mapped[dict[str, Any]] = mapped_column(
+        JSON_TYPE,
+        default=lambda: {"chromium": True, "firefox": False, "webkit": False},
+        nullable=False,
+    )
+    max_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=25)
+    max_depth: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    notify_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    user: Mapped[PlatformUser] = relationship()
+
+    __table_args__ = (
+        Index("ix_monitor_schedules_user_id", "user_id"),
+        Index("ix_monitor_schedules_next_run", "is_active", "next_run_at"),
     )
 
 

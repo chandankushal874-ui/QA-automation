@@ -251,6 +251,12 @@ def ensure_seed_users(db: Session) -> None:
                     )
                 )
                 logger.info("Seeded platform user '%s'", uname)
+            elif not verify_password(pwd, existing.password_hash):
+                # Env-declared seed creds are authoritative (like ADMIN_PASSWORD):
+                # keep the hash in sync so deployments with rotating SEED_USERS
+                # don't strand accounts at stale passwords.
+                existing.password_hash = hash_password(pwd)
+                logger.info("Resynced seed user '%s' password from env", uname)
 
     try:
         db.commit()
@@ -311,6 +317,13 @@ def get_current_user(request: Request, db: Session = Depends(get_db_dep)) -> Pla
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = verify_token(auth[7:])
     if not payload:
+        # Not a valid JWT — try API token (CI/CD access) before rejecting.
+        # Tokens authenticate as their owner and inherit the same isolation.
+        from src.api.tokens import authenticate_api_token
+
+        user = authenticate_api_token(db, auth[7:])
+        if user is not None:
+            return user
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     user_id = payload.get("sub")
