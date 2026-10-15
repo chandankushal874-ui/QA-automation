@@ -38,11 +38,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # App deps first (layer cache). build-essential only for compile, then removed.
+# psycopg[binary] = driver v3 — SQLAlchemy 2.x maps `postgresql://` to
+# psycopg (v3), NOT psycopg2. Without it the worker silently degrades to
+# SQLite and crawls a different database than the API (jobs never visible).
 COPY pyproject.toml /app/
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
     && pip install --upgrade pip \
     && pip install . \
-    && pip install psycopg2-binary gunicorn \
+    && pip install "psycopg[binary]" psycopg2-binary gunicorn \
     && playwright install --with-deps chromium firefox webkit \
     && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/* /root/.cache/pip

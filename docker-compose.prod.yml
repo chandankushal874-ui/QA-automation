@@ -27,7 +27,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cbtp_prod_password_change_me}
       POSTGRES_DB: ${POSTGRES_DB:-cbtp}
     ports:
-      - "5432:5432"
+      # Host 5433: a native Windows postgresql-x64-16 service already owns
+      # localhost:5432; mapping the container to 5432 silently shadows it and
+      # host apps connect to the WRONG server. 5433 avoids the conflict.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -43,7 +46,9 @@ services:
     # Scaled for 20 concurrent crawl job queues
     command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru --timeout 0 --tcp-keepalive 60
     ports:
-      - "6379:6379"
+      # Host 6380: a native Windows redis-server service already owns
+      # localhost:6379 (old version, breaks RESP3 clients). 6380 avoids it.
+      - "6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -92,7 +97,9 @@ services:
       --access-logfile -
       --error-logfile -
     ports:
-      - "8000:8000"
+      # Host 8001: another compose project (pulsarfeed) already binds host 8000.
+      # Container-internal port stays 8000 — nginx/worker URLs unchanged.
+      - "8001:8000"
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-cbtp}:${POSTGRES_PASSWORD:-cbtp_prod_password_change_me}@postgres:5432/${POSTGRES_DB:-cbtp}
       - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-cbtp}:${POSTGRES_PASSWORD:-cbtp_prod_password_change_me}@postgres:5432/${POSTGRES_DB:-cbtp}
@@ -114,6 +121,16 @@ services:
       - PER_ENDPOINT_VISIT_BUDGET=${PER_ENDPOINT_VISIT_BUDGET:-5}
       - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-10}
       - FIXTURE_APP_URL=http://fixture:8090
+      # Multi-user auth + isolation + concurrency knobs (see src/config.py Settings)
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - SEED_USERS=${SEED_USERS:-}
+      - AUTH_DISABLED=${AUTH_DISABLED:-false}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - MAX_CONCURRENT_JOBS_PER_USER=${MAX_CONCURRENT_JOBS_PER_USER:-2}
+      - MAX_CONCURRENT_JOBS_ADMIN=${MAX_CONCURRENT_JOBS_ADMIN:-0}
+      - TENANT_REDIS_ISOLATION=${TENANT_REDIS_ISOLATION:-true}
+      - DATABASE_REQUIRE_POSTGRES=${DATABASE_REQUIRE_POSTGRES:-false}
     volumes:
       - ./reports:/app/reports
     depends_on:
@@ -168,6 +185,16 @@ services:
       - PER_ENDPOINT_VISIT_BUDGET=${PER_ENDPOINT_VISIT_BUDGET:-5}
       - CIRCUIT_BREAKER_THRESHOLD=${CIRCUIT_BREAKER_THRESHOLD:-10}
       - FIXTURE_APP_URL=http://fixture:8090
+      # Multi-user auth + concurrency (worker needs slot limits + auth for RQ job context)
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - SEED_USERS=${SEED_USERS:-}
+      - AUTH_DISABLED=${AUTH_DISABLED:-false}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - MAX_CONCURRENT_JOBS_PER_USER=${MAX_CONCURRENT_JOBS_PER_USER:-2}
+      - MAX_CONCURRENT_JOBS_ADMIN=${MAX_CONCURRENT_JOBS_ADMIN:-0}
+      - TENANT_REDIS_ISOLATION=${TENANT_REDIS_ISOLATION:-true}
+      - DATABASE_REQUIRE_POSTGRES=${DATABASE_REQUIRE_POSTGRES:-false}
     volumes:
       - ./reports:/app/reports
     depends_on:

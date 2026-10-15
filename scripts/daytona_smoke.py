@@ -30,7 +30,7 @@ if not api_key:
     print("FAIL: DAYTONA_API_KEY not set")
     sys.exit(1)
 
-from daytona import Daytona, DaytonaConfig, CreateSandboxFromSnapshotParams  # noqa: E402
+from daytona import CreateSandboxFromSnapshotParams, Daytona, DaytonaConfig  # noqa: E402
 
 print(f"Connecting to Daytona at {api_url} ...")
 config = DaytonaConfig(api_key=api_key, api_url=api_url)

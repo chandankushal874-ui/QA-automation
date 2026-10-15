@@ -1,5 +1,4 @@
 import urllib.request
-import json
 
 KEY = "dtn_d3df76816ba0a9b4d2d90c05f9c2cb817fc4d72aee87209a5332c7c097c2145a"
 BASE = "https://app.daytona.io/api"

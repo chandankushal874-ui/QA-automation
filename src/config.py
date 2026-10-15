@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     max_concurrent_jobs_admin: int = 0
     # When true, crawls open Redis on a per-tenant logical DB (1–15)
     tenant_redis_isolation: bool = True
+    # When true, the API refuses to boot without PostgreSQL (strict prod mode).
+    # When false (default), it degrades to SQLite with a loud warning —
+    # keeps local dev, CI, and demo installs working.
+    database_require_postgres: bool = False
+    # When true, crawls open Redis on a per-tenant logical DB (1–15)
+    tenant_redis_isolation: bool = True
 
     # ── Enterprise auth controls (phased; defaults keep local simple) ──
     # Phase 1: append-only audit log (login, jobs, admin). Safe default: on.

@@ -21,7 +21,8 @@ services:
     image: redis:7-alpine
     container_name: cbtp-redis
     ports:
-      - "6379:6379"
+      # Host 6380: native Windows redis-server owns 6379 (see prod compose note)
+      - "6380:6379"
     volumes:
       - redis_data:/data
     healthcheck:

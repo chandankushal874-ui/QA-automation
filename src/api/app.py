@@ -10,6 +10,7 @@ import contextlib
 import ipaddress
 import logging
 import sys
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -67,10 +68,28 @@ try:
         # created the tables (checkfirst is not atomic).
         Base.metadata.create_all(bind=engine)
 except Exception as e:
-    logger.error("PostgreSQL database connection failed: %s. PostgreSQL is required for running the platform.", e)
-    raise RuntimeError(
-        f"PostgreSQL connection failed: {e}. Please ensure PostgreSQL 16 is running at {DATABASE_URL}"
-    ) from e
+    # Production-grade resilience: degrade to SQLite instead of crashing when
+    # Postgres is unavailable (local dev, CI, friend-laptop installs).
+    # The warning is loud so operators notice the fallback in logs.
+    if settings.database_require_postgres:
+        logger.error("PostgreSQL connection failed: %s.", e)
+        raise RuntimeError(
+            f"PostgreSQL connection failed: {e}. Please ensure PostgreSQL 16 is running at {DATABASE_URL}"
+        ) from e
+    logger.warning(
+        "PostgreSQL unavailable (%s). Falling back to local SQLite cbtp.db — "
+        "use PostgreSQL in production for durability and concurrency.", e,
+    )
+    DATABASE_URL = "sqlite:///./cbtp.db"
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        pool_size=50,
+        max_overflow=20,
+    )
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    with contextlib.suppress(Exception):
+        Base.metadata.create_all(bind=engine)
 
 
 def get_db():
@@ -167,6 +186,19 @@ app.add_middleware(
 
 # Register auth router for self-hosted multi-user login
 app.include_router(auth_router)
+
+# API tokens for CI/CD (additive — no effect unless created/used)
+from src.api.tokens import router as tokens_router  # noqa: E402
+
+app.include_router(tokens_router)
+
+# Scheduled site monitoring (additive — scheduler started on app startup)
+from src.api.monitors import router as monitors_router  # noqa: E402
+from src.api.monitors import start_scheduler  # noqa: E402
+
+app.include_router(monitors_router)
+with contextlib.suppress(Exception):
+    start_scheduler(app)
 
 
 # â”€â”€â”€ Backward-compatible in-memory store for unit tests â”€â”€â”€
@@ -283,18 +315,57 @@ def is_localhost_or_private(url: str) -> bool:
     return bool(hostname.endswith(".local") or hostname.endswith(".internal"))
 
 
+def _load_job_for_worker(job_id_str: str, attempts: int = 6, delay_s: float = 1.0):
+    """Worker-side job load with bounded retry.
+
+    RQ can dequeue a job before the API's INSERT transaction is visible to
+    the worker's new session (observed in live runs). Retry with fresh
+    sessions so crawls never die with 'Job not found' on fast workers.
+    """
+    import time as _time
+
+    last_db = None
+    for attempt in range(1, attempts + 1):
+        db = SessionLocal()
+        try:
+            job_uuid = uuid.UUID(job_id_str)
+            job = db.query(Job).filter_by(id=job_uuid).first()
+            if job:
+                return db, job
+            logger.warning(
+                "Job %s not visible yet (attempt %d/%d) — retrying",
+                job_id_str, attempt, attempts,
+            )
+        except Exception:
+            db.close()
+            raise
+        db.close()
+        last_db = None
+        _time.sleep(delay_s)
+    return last_db, None
+
+
 def run_background_crawl_job(job_id_str: str) -> None:
     """Entry point for background thread running CrawlEngine loop.
 
-    Uses daemon thread + asyncio.run() — the proven approach that works.
+    Uses daemon thread + asyncio.run() - the proven approach that works.
     All logging goes through logger.info/error so it's visible in uvicorn output.
     """
     logger.info(f"Starting background crawl for job {job_id_str}")
 
-    db: Session = SessionLocal()
+    db: Session | None
+    from src.api.app import engine as app_engine
+    # Guard: a worker that silently fell back to SQLite while the API runs
+    # Postgres would crawl a DIFFERENT database (jobs enqueued by the API are
+    # invisible). Fail loudly instead of crawling the wrong store.
+    if settings.database_require_postgres and app_engine.dialect.name != "postgresql":
+        raise RuntimeError(
+            "DATABASE_REQUIRE_POSTGRES=true but worker engine is "
+            f"{app_engine.dialect.name!r} — refusing to process crawls on a "
+            "fallback database. Install psycopg (v3) / fix DATABASE_URL_SYNC."
+        )
+    db, job = _load_job_for_worker(job_id_str)
     try:
-        job_uuid = uuid.UUID(job_id_str)
-        job = db.query(Job).filter_by(id=job_uuid).first()
         if not job:
             logger.error(f"Job {job_id_str} not found for background crawl task")
             return
@@ -391,6 +462,16 @@ def run_background_crawl_job(job_id_str: str) -> None:
             logger.info(f"Job {job_id_str} marked COMPLETED")
         else:
             logger.info(f"Job {job_id_str} already terminal ({job.status.value}), not overriding")
+
+        # Monitor webhook notification (Slack-compatible) — non-fatal by design
+        with contextlib.suppress(Exception):
+            from src.api.monitors import maybe_notify_job_completion
+
+            loop_notify = asyncio.new_event_loop()
+            try:
+                loop_notify.run_until_complete(maybe_notify_job_completion(db, job))
+            finally:
+                loop_notify.close()
 
         # Sync updates back to backward-compatible JOBS_STORE
         db.refresh(job)
@@ -543,113 +624,199 @@ async def get_crawler_slots(
     }
 
 
-@app.post("/jobs", response_model=JobResponse, status_code=201)
-async def create_job(
-    request: CreateJobRequest,
-    background_tasks: BackgroundTasks,
-    http_request: Request,
-    db: Session = Depends(get_db),
-    current_user: PlatformUser = Depends(get_current_user),
-) -> JobResponse:
-    """Submit a cross-browser crawl testing job (owned by the logged-in user).
+# In-process per-owner mutexes — the fallback consistency layer when Redis
+# is unavailable. Covers multi-threaded access inside one process (dev,
+# TestClient, gunicorn threads). Cross-process safety requires Redis.
+import threading  # noqa: E402
 
-    Each job is an isolated crawler. Non-admin users may hold up to
-    ``max_concurrent_jobs_per_user`` (default 2) pending/running jobs at once.
+_user_slot_mutexes: dict[str, Any] = {}
+_user_slot_mutexes_guard = threading.Lock()
+
+
+def _acquire_user_slot_lock(owner_id: Any, timeout_seconds: float = 5.0) -> Any:
+    """Per-user mutex for job creation (slot-limit consistency under load).
+
+    Priority: Redis SET NX EX (cross-process, multi-replica safety). When
+    Redis is unavailable, degrade to an in-process threading lock so that
+    concurrent threads within one process still serialize — a silent
+    no-lock fallback would let 10 threads all see "1 active" and create
+    10 jobs (reproduced in tests/test_consistency_soak.py).
+    Returns a release callable.
+    """
+    key = f"cbtp:slot-lock:{owner_id}"
+    token = uuid.uuid4().hex
+    redis_mode = False
+    try:
+        import redis as _redis
+
+        rc = _redis.Redis.from_url(settings.redis_url, socket_timeout=2)
+        rc.ping()
+        redis_mode = True
+    except Exception:
+        redis_mode = False
+
+    if redis_mode:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                if rc.set(key, token, nx=True, ex=10):  # type: ignore[union-attr]
+                    def _release() -> None:
+                        try:
+                            pipe = rc.pipeline()  # type: ignore[union-attr]
+                            pipe.get(key)
+                            current = pipe.execute()[0]
+                            if current and current.decode() == token:
+                                rc.delete(key)  # type: ignore[union-attr]
+                        except Exception:
+                            pass
+
+                    return _release
+            except Exception:
+                break
+            time.sleep(0.05)
+        logger.warning("Slot lock contention for owner %s — proceeding without lock", str(owner_id)[:8])
+
+    # In-process fallback (thread-safe within this process)
+    with _user_slot_mutexes_guard:
+        lock = _user_slot_mutexes.setdefault(str(owner_id), threading.Lock())
+
+    acquired = lock.acquire(timeout=timeout_seconds)
+    if not acquired:
+        logger.warning("Local slot lock contention for owner %s — proceeding unlocked", str(owner_id)[:8])
+        return lambda: None
+
+    def _release_local() -> None:
+        # Double-release guard: releasing an unlocked threading.Lock raises RuntimeError
+        with contextlib.suppress(RuntimeError):
+            lock.release()
+
+    return _release_local
+
+
+def _create_job_core(
+    db: Session,
+    owner: PlatformUser,
+    url: str,
+    scope: str,
+    browser_matrix: dict[str, bool],
+    max_pages: int,
+    max_depth: int,
+    max_time_seconds: int,
+    repo_url: str | None,
+    config: dict[str, Any],
+    credentials: Any | None,
+    http_request: Request | None,
+) -> JobResponse:
+    """Single source of truth for crawl creation.
+
+    Called by POST /jobs and by scheduled monitors — slot limits, tenant
+    isolation, RQ dispatch and audit logging apply identically to both.
+    Raises HTTPException(429) when the owner's concurrent-slot limit is hit.
+
+    Concurrency: the per-user slot check runs under a short-lived Redis
+    lock so 20 simultaneous requests cannot all see "1 active" and create
+    20 jobs. Without Redis (dev/SQLite) the single process serializes us.
     """
     from src.core.audit import record_audit
 
-    # Per-user concurrent crawler slots (isolation preserved via owner_id)
-    slot_limit = _user_slot_limit(current_user)
-    if slot_limit > 0:
-        active = _user_active_job_count(db, current_user.id)
-        if active >= slot_limit:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"Crawler limit reached: you already have {active}/{slot_limit} "
-                    f"active crawls (pending or running). Wait for one to finish, "
-                    f"or stop a job. Each crawl is isolated — you can run up to "
-                    f"{slot_limit} at the same time."
-                ),
-            )
+    release = _acquire_user_slot_lock(owner.id)
+    try:
+        # Per-user concurrent crawler slots (isolation preserved via owner_id)
+        slot_limit = _user_slot_limit(owner)
+        if slot_limit > 0:
+            active = _user_active_job_count(db, owner.id)
+            if active >= slot_limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        f"Crawler limit reached: you already have {active}/{slot_limit} "
+                        f"active crawls (pending or running). Wait for one to finish, "
+                        f"or stop a job. Each crawl is isolated — you can run up to "
+                        f"{slot_limit} at the same time."
+                    ),
+                )
 
-    is_local = is_localhost_or_private(request.url)
+        is_local = is_localhost_or_private(url)
 
-    # Scoped credentials security gate
-    if request.credentials:
-        import json
+        # Scoped credentials security gate
+        if credentials:
+            import json
 
-        try:
-            dev_creds = json.loads(settings.dev_credentials)
-        except Exception:
-            dev_creds = {}
-        is_prod_target = not is_local
-        if is_prod_target and dev_creds and request.credentials.username == dev_creds.get("username"):
-            raise HTTPException(
-                status_code=400,
-                detail="Security Gate: Development credentials cannot be used on production/external targets.",
-            )
+            try:
+                dev_creds = json.loads(settings.dev_credentials)
+            except Exception:
+                dev_creds = {}
+            is_prod_target = not is_local
+            if is_prod_target and dev_creds and credentials.username == dev_creds.get("username"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Security Gate: Development credentials cannot be used on production/external targets.",
+                )
 
-    job_uuid = uuid.uuid4()
-    job_id_str = str(job_uuid)
-    now = datetime.now(UTC)
+        job_uuid = uuid.uuid4()
+        job_id_str = str(job_uuid)
+        now = datetime.now(UTC)
 
-    # 1. Save to Database (owner_id + tenant paths isolate jobs per platform user)
-    from src.core.tenant_isolation import apply_job_isolation_paths
+        # 1. Save to Database (owner_id + tenant paths isolate jobs per platform user)
+        from src.core.tenant_isolation import apply_job_isolation_paths
 
-    job_config = dict(request.config or {})
-    job = Job(
-        id=job_uuid,
-        owner_id=current_user.id,
-        url=request.url,
-        scope=request.scope,
-        status=JobStatus.PENDING,
-        browser_matrix=request.browser_matrix.model_dump(),
-        max_pages=request.max_pages,
-        max_depth=request.max_depth,
-        max_time_seconds=request.max_time_seconds,
-        repo_url=request.repo_url,
-        config=job_config,
-        created_at=now,
-    )
-    db.add(job)
-    db.flush()  # get job.id for path materialization
-    apply_job_isolation_paths(job)
-
-    # Save credentials profiles if given (password encrypted at rest)
-    has_creds = False
-    if request.credentials:
-        from src.core.secrets_crypto import encrypt_secret
-
-        has_creds = True
-        auth_prof = AuthProfile(
-            job_id=job_uuid,
-            login_url=request.credentials.login_url or request.url,
-            username=request.credentials.username,
-            password_encrypted=encrypt_secret(request.credentials.password or ""),
-            tokens={"access_token": request.credentials.token} if request.credentials.token else {},
-            cookies=request.credentials.cookies,
+        job_config = dict(config or {})
+        job = Job(
+            id=job_uuid,
+            owner_id=owner.id,
+            url=url,
+            scope=scope,
+            status=JobStatus.PENDING,
+            browser_matrix=browser_matrix,
+            max_pages=max_pages,
+            max_depth=max_depth,
+            max_time_seconds=max_time_seconds,
+            repo_url=repo_url,
+            config=job_config,
+            created_at=now,
         )
-        db.add(auth_prof)
-        job.has_credentials = True
+        db.add(job)
+        db.flush()  # get job.id for path materialization
+        apply_job_isolation_paths(job)
 
-    db.commit()
+        # Save credentials profiles if given (password encrypted at rest)
+        has_creds = False
+        if credentials:
+            from src.core.secrets_crypto import encrypt_secret
+
+            has_creds = True
+            auth_prof = AuthProfile(
+                job_id=job_uuid,
+                login_url=credentials.login_url or url,
+                username=credentials.username,
+                password_encrypted=encrypt_secret(credentials.password or ""),
+                tokens={"access_token": credentials.token} if credentials.token else {},
+                cookies=credentials.cookies,
+            )
+            db.add(auth_prof)
+            job.has_credentials = True
+
+        db.commit()
+    finally:
+        # Slot lock is held only across check→commit; release ASAP.
+        if release is not None:
+            release()
 
     # 2. Save in backward-compatible in-memory store for unit test suite validation.
     # Always stamp owner_id so cross-user reads of JOBS_STORE can be blocked.
     JOBS_STORE[job_id_str] = {
         "id": job_id_str,
-        "owner_id": str(current_user.id),
-        "url": request.url,
+        "owner_id": str(owner.id),
+        "url": url,
         "status": "pending",
-        "scope": request.scope,
-        "browser_matrix": request.browser_matrix.model_dump(),
+        "scope": scope,
+        "browser_matrix": browser_matrix,
         "has_credentials": has_creds,
-        "max_pages": request.max_pages,
-        "max_depth": request.max_depth,
-        "max_time_seconds": request.max_time_seconds,
-        "repo_url": request.repo_url,
-        "config": request.config,
+        "max_pages": max_pages,
+        "max_depth": max_depth,
+        "max_time_seconds": max_time_seconds,
+        "repo_url": repo_url,
+        "config": job_config,
         "is_localhost": is_local,
         "pages_discovered": 0,
         "pages_visited": 0,
@@ -690,16 +857,16 @@ async def create_job(
                 job_id_str,
                 job_timeout=86400,
                 meta={
-                    "owner_id": str(current_user.id),
-                    "tenant": crawl_queue_name(current_user.id),
+                    "owner_id": str(owner.id),
+                    "tenant": crawl_queue_name(owner.id),
                 },
             )
             enqueued = True
             logger.info(
                 "Enqueued crawl job %s (owner=%s tenant=%s)",
                 job_id_str,
-                str(current_user.id)[:8],
-                crawl_queue_name(current_user.id),
+                str(owner.id)[:8],
+                crawl_queue_name(owner.id),
             )
         except Exception as e:
             logger.warning(f"Redis/RQ unavailable ({e}) — falling back to in-process crawl thread")
@@ -711,7 +878,7 @@ async def create_job(
                 target=run_background_crawl_job,
                 args=(job_id_str,),
                 daemon=True,
-                name=f"crawl-{str(current_user.id)[:8]}-{job_id_str[:8]}",
+                name=f"crawl-{str(owner.id)[:8]}-{job_id_str[:8]}",
             )
             thread.start()
             logger.info(f"Started background crawl thread for job {job_id_str}")
@@ -719,27 +886,56 @@ async def create_job(
     record_audit(
         db,
         action="job.create",
-        actor_id=current_user.id,
-        actor_username=current_user.username,
+        actor_id=owner.id,
+        actor_username=owner.username,
         resource_type="job",
         resource_id=job_id_str,
         success=True,
-        detail={"url": request.url, "scope": request.scope},
+        detail={"url": url, "scope": scope},
         request=http_request,
     )
 
     return JobResponse(
         id=job_id_str,
-        url=request.url,
+        url=url,
         status="pending",
+        scope=scope,
+        browser_matrix=browser_matrix,
+        has_credentials=has_creds,
+        max_pages=max_pages,
+        max_depth=max_depth,
+        max_time_seconds=max_time_seconds,
+        created_at=now.isoformat(),
+        message=f"Job created. Target: {url} ({'localhost' if is_local else 'remote'})",
+    )
+
+
+@app.post("/jobs", response_model=JobResponse, status_code=201)
+async def create_job(
+    request: CreateJobRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request,
+    db: Session = Depends(get_db),
+    current_user: PlatformUser = Depends(get_current_user),
+) -> JobResponse:
+    """Submit a cross-browser crawl testing job (owned by the logged-in user).
+
+    Each job is an isolated crawler. Non-admin users may hold up to
+    ``max_concurrent_jobs_per_user`` (default 2) pending/running jobs at once.
+    """
+    return _create_job_core(
+        db=db,
+        owner=current_user,
+        url=request.url,
         scope=request.scope,
         browser_matrix=request.browser_matrix.model_dump(),
-        has_credentials=has_creds,
         max_pages=request.max_pages,
         max_depth=request.max_depth,
         max_time_seconds=request.max_time_seconds,
-        created_at=now.isoformat(),
-        message=f"Job created. Target: {request.url} ({'localhost' if is_local else 'remote'})",
+        repo_url=request.repo_url,
+        config=request.config,
+        credentials=request.credentials,
+        http_request=http_request,
     )
 
 
