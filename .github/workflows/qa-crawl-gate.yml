@@ -1,0 +1,101 @@
+# =============================================================================
+# PR-Gated Cross-Browser QA — crawls the PR's preview/staging deploy via CBTP
+# and blocks the PR when the crawl finds BLOCKING issues.
+#
+# One-time repo setup (Settings → Secrets and variables → Actions):
+#   CBTP_API_URL    e.g. https://cbtp.yourcompany.com  (or http://<host>:8001)
+#   CBTP_API_TOKEN  create via CBTP UI/API:  POST /api/me/tokens {"name":"github-actions"}
+#                   (copy the cbtp_... value — shown exactly once)
+#   QA_TARGET_URL   optional: fixed target to crawl (defaults to preview URL below)
+#
+# The token belongs to a dedicated CI user on CBTP, so crawls are isolated
+# to that account and bounded by its per-user slot limits.
+# =============================================================================
+name: QA Crawl Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+# Cancel superseded crawls on the same PR (frees CI user slots faster).
+concurrency:
+  group: qa-crawl-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write   # PR comment with the crawl summary
+
+jobs:
+  crawl-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install httpx (ci_gate client)
+        run: pip install "httpx>=0.27"
+
+      - name: Resolve crawl target
+        id: target
+        env:
+          QA_TARGET_URL: ${{ secrets.QA_TARGET_URL }}
+        run: |
+          # Default: a Vercel/Netlify-style preview deployment for this PR.
+          # Override with QA_TARGET_URL secret for other hosting.
+          if [ -n "$QA_TARGET_URL" ]; then
+            echo "url=$QA_TARGET_URL" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://${{ github.event.repository.name }}-pr-${{ github.event.pull_request.number }}.vercel.app" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run CBTP crawl gate
+        id: gate
+        env:
+          CBTP_API_URL: ${{ secrets.CBTP_API_URL }}
+          CBTP_API_TOKEN: ${{ secrets.CBTP_API_TOKEN }}
+          TARGET: ${{ steps.target.outputs.url }}
+        run: |
+          # Fail the job only on BLOCKING issues; functional threshold is advisory.
+          python scripts/ci_gate.py \
+            --api-url "$CBTP_API_URL" \
+            --token "$CBTP_API_TOKEN" \
+            --target "$TARGET" \
+            --max-blocking 0 \
+            --max-functional -1 \
+            --max-pages 50 \
+            --max-depth 3 \
+            --timeout 1800
+
+      - name: Comment PR with QA result
+        if: always() && steps.gate.outcome != 'skipped'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const outcome = process.env.GATE_OUTCOME || '${{ steps.gate.outcome }}';
+            const target = process.env.TARGET_URL || '${{ steps.target.outputs.url }}';
+            const icon = outcome === 'success' ? '✅' : outcome === 'failure' ? '❌' : '⚠️';
+            const body = [
+              `${icon} **CBTP QA Crawl — ${outcome}**`,
+              ``,
+              `Target: ${target}`,
+              `A cross-browser crawl (Chromium/Firefox/WebKit) ran against this PR's deploy.`,
+              ``,
+              `- \`max-blocking 0\` gate: ${outcome === 'success' ? 'passed — no blocking issues' : 'FAILED — see job log'}`,
+              `- Full dashboard: ${{ secrets.CBTP_API_URL }}/jobs (find the latest job for this PR)`,
+              ``,
+              `_Powered by the self-hosted Cross-Browser Testing Platform._`,
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+        env:
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          TARGET_URL: ${{ steps.target.outputs.url }}
