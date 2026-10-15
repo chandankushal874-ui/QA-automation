@@ -157,6 +157,37 @@ def _ensure_auth_enterprise_columns() -> None:
 _ensure_owner_column()
 _ensure_auth_enterprise_columns()
 
+
+def _ensure_monitor_jira_columns() -> None:
+    """Add monitor_schedules jira_* columns on legacy DBs.
+
+    create_all never ALTERs existing tables; without this, monitor
+    completion crashes on 'column does not exist' (caught live on PG).
+    """
+    try:
+        from sqlalchemy import inspect, text
+
+        insp = inspect(engine)
+        if "monitor_schedules" not in insp.get_table_names():
+            return
+        cols = {c["name"] for c in insp.get_columns("monitor_schedules")}
+        wanted = {
+            "jira_url": "VARCHAR(512)",
+            "jira_project": "VARCHAR(64)",
+            "jira_token_encrypted": "VARCHAR(512)",
+        }
+        missing = {k: t for k, t in wanted.items() if k not in cols}
+        if missing:
+            with engine.begin() as conn:
+                for col, coltype in missing.items():
+                    conn.execute(text(f"ALTER TABLE monitor_schedules ADD COLUMN {col} {coltype}"))
+            logger.info("Added monitor_schedules jira columns: %s", ", ".join(missing))
+    except Exception as e:
+        logger.warning("Could not ensure monitor jira columns: %s", e)
+
+
+_ensure_monitor_jira_columns()
+
 # Wire auth module to the same SessionLocal
 bind_get_db(get_db)
 try:
@@ -300,6 +331,7 @@ class JobReportResponse(BaseModel):
     started_at: str | None
     completed_at: str | None
     quarantined_issues: int = 0
+    lighthouse_seed: dict[str, Any] | None = None
 
 
 # â”€â”€â”€ Helpers â”€â”€â”€
@@ -1398,6 +1430,7 @@ async def get_job_report(
                 started_at=job.started_at.isoformat() if job.started_at else None,
                 completed_at=job.completed_at.isoformat() if job.completed_at else None,
                 quarantined_issues=quarantined_count,
+                lighthouse_seed=(job.config or {}).get("lighthouse_seed"),
             )
     except HTTPException:
         raise

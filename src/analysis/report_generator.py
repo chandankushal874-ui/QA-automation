@@ -1149,6 +1149,73 @@ def _render_technical_findings(job: Any) -> str:
     """
 
 
+def _render_lighthouse_summary(registry: Any, job: Any) -> str:
+    """Lighthouse-style performance summary: seed score + per-page averages.
+
+    Sources: job.config['lighthouse_seed'] (real CLI when enabled) and each
+    endpoint's performance_data[...]['lighthouse'] (computed, per browser).
+    """
+    lh_seed = (getattr(job, "config", None) or {}).get("lighthouse_seed") or {}
+    per_page = []
+    for ep in registry.get_all():
+        pdata = getattr(ep, "performance_data", None) or {}
+        for _browser, data in pdata.items():
+            lh = (data or {}).get("lighthouse") or {}
+            if lh:
+                per_page.append(lh)
+
+    if not lh_seed and not per_page:
+        return ""
+
+    def _badge(score: int, label: str, note: str = "") -> str:
+        color = "#059669" if score >= 90 else ("#eab308" if score >= 50 else "#ef4444")
+        return (
+            f'<div style="background: var(--card); border: 1px solid var(--border); '
+            f'border-radius: 8px; padding: 1rem; min-width: 160px;">'
+            f'<div style="color: {color}; font-size: 2rem; font-weight: 700;">{score}</div>'
+            f'<div style="font-size: 0.85rem; font-weight: 600; color: var(--muted);">{label}</div>'
+            f'<div style="font-size: 0.7rem; color: var(--muted);">{note}</div></div>'
+        )
+
+    cards = ""
+    if lh_seed:
+        src = "Lighthouse CLI" if lh_seed.get("source") == "lighthouse" else "computed"
+        cards += _badge(int(lh_seed.get("score") or 0), "Seed page", f"source: {src}")
+    if per_page:
+        avg = round(sum(int(p.get("score") or 0) for p in per_page) / len(per_page))
+        worst = min(per_page, key=lambda p: int(p.get("score") or 0))
+        cards += _badge(avg, "All pages (avg)", f"{len(per_page)} samples")
+        cards += _badge(int(worst.get("score") or 0), "Worst page", "optimization target")
+
+    # metric legend with grades
+    legend = ""
+    sample = lh_seed or (per_page[0] if per_page else {})
+    for name, m in (sample.get("metrics") or {}).items():
+        if m.get("value") is None:
+            continue
+        pretty = name.replace("_", " ").title()
+        g = m.get("grade", "")
+        g_color = {"good": "#059669", "needs-improvement": "#eab308", "poor": "#ef4444"}.get(g, "#3b82f6")
+        legend += (
+            f'<span style="font-size:0.75rem; color: var(--muted); margin-right: 0.9rem;">'
+            f"{pretty}: <strong>{m['value']}</strong>"
+            f'<span style="color:{g_color};"> ({g})</span></span>'
+        )
+
+    src_note = (
+        "Lighthouse CLI audit"
+        if lh_seed.get("source") == "lighthouse"
+        else "Computed from live crawl metrics (Lighthouse v10 curve) — set "
+        "LIGHTHOUSE_ENABLED + install the lighthouse CLI for a full audit"
+    )
+    return f"""
+        <h2 style="margin-top: 3rem;">&amp;#9889; Performance (Lighthouse-style)</h2>
+        <p style="color: var(--muted); font-size: 0.85rem;">{src_note}</p>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.8rem;">{cards}</div>
+        <div>{legend}</div>
+    """
+
+
 def generate_static_html_report(job_id: str, job: Any, registry: Any, issues: list[Any]) -> str:
     """Generate a static HTML report presenting crawled endpoints in a master table with statuses, screenshots, and errors."""
 
@@ -1303,8 +1370,23 @@ def generate_static_html_report(job_id: str, job: Any, registry: Any, issues: li
                 ttfb_color = "#059669" if ttfb < 800 else ("#eab308" if ttfb < 1800 else "#ef4444")
                 load_color = "#059669" if load_time < 3000 else ("#eab308" if load_time < 5000 else "#ef4444")
 
+                # Lighthouse-style score badge (from src.analysis.lighthouse_scorer)
+                lh = pdata.get("lighthouse") or {}
+                lh_html = ""
+                if lh:
+                    score = int(lh.get("score") or 0)
+                    lh_color = "#059669" if score >= 90 else ("#eab308" if score >= 50 else "#ef4444")
+                    src_note = "LH" if lh.get("source") == "lighthouse" else "LH*"
+                    lh_html = (
+                        f'<div style="margin-bottom:4px;">{src_note} Perf: '
+                        f'<strong style="color:{lh_color};">{score}</strong>'
+                        f'<span style="color:var(--muted);font-size:0.7rem;">/100</span>'
+                        f"</div>"
+                    )
+
                 perf_html = f"""
                 <div style="font-size: 0.8rem;">
+                    {lh_html}
                     <div style="margin-bottom: 4px;">TTFB: <strong style="color: {ttfb_color};">{ttfb:.0f}ms</strong></div>
                     <div style="margin-bottom: 4px;">DOM Complete: <strong>{dom_complete:.0f}ms</strong></div>
                     <div style="margin-bottom: 4px;">Load: <strong style="color: {load_color};">{load_time:.0f}ms</strong></div>
@@ -1509,6 +1591,7 @@ def generate_static_html_report(job_id: str, job: Any, registry: Any, issues: li
 
         {_render_summary_stats(registry, job)}
         {_render_health_score(registry, issues)}
+        {_render_lighthouse_summary(registry, job)}
         {_render_key_findings(job, registry)}
         {_render_sitemap_verification(job)}
         {_render_external_services(job)}

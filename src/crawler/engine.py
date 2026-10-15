@@ -936,6 +936,32 @@ class CrawlEngine:
 
             self.db.commit()
 
+            # Optional REAL Lighthouse audit of the seed page (worker context,
+            # Node CLI, enabled via LIGHTHOUSE_ENABLED). Non-fatal; merged over
+            # the per-page computed scores in the report summary.
+            with contextlib.suppress(Exception):
+                from src.analysis.lighthouse_scorer import (
+                    merge_lighthouse_sections,
+                    run_lighthouse_audit,
+                )
+
+                real_lh = run_lighthouse_audit(self.job.url)
+                if real_lh:
+                    seed_ep = self.registry.get(self.job.url, "GET")
+                    computed = None
+                    if seed_ep is not None and getattr(seed_ep, "performance_data", None):
+                        first = next(iter(seed_ep.performance_data.values()), None) or {}
+                        computed = first.get("lighthouse")
+                    merged = merge_lighthouse_sections(computed, real_lh)
+                    config = dict(self.job.config or {})
+                    config["lighthouse_seed"] = merged
+                    self.job.config = config  # full reassignment for SQLAlchemy tracking
+                    self.db.commit()
+                    logger.info(
+                        "Lighthouse CLI audit of seed page: score=%s (source=%s)",
+                        merged.get("score"), merged.get("source"),
+                    )
+
             from src.analysis.report_generator import generate_static_html_report
 
             _p = getattr(self, "_iso_paths", None) or {}
@@ -1101,6 +1127,20 @@ class CrawlEngine:
                     self.db.add(state_record)
                     self.db.commit()
                     return True, "Skipped non-HTML content"
+
+            # Register the VISITED page itself (document navigation is not
+            # captured by the request-interception listener, which only sees
+            # subresources). Without this, perf data / screenshots / visual
+            # diffs were silently dropped for every crawled page.
+            try:
+                _, _was_new = self.registry.add(
+                    url=url,
+                    method=method,
+                    source=EndpointSource.USER_PROVIDED,
+                    discovered_on_page=parent_node.parent_url or "",
+                )
+            except Exception as reg_err:
+                logger.debug("visited-page registration skipped for %s: %s", url, reg_err)
 
             # Fetch content and compute structure early to check for pagination traps
             html_content = await page.page.content()
@@ -1303,6 +1343,26 @@ class CrawlEngine:
                     "cdp_metrics": cdp_metrics,
                     "nav_timing": nav_timing,
                 }
+                # Lighthouse-style scoring (FCP/LCP/TBT/SI/CLS) from live data.
+                # Non-fatal enrichment — never breaks the crawl.
+                try:
+                    from src.analysis.lighthouse_scorer import (
+                        collect_paint_and_shift,
+                        compute_lighthouse_style_scores,
+                    )
+
+                    paint_and_shift = await collect_paint_and_shift(page.page)
+                    resource_data = {
+                        "long_tasks": paint_and_shift.get("long_tasks") or [],
+                        "layout_shift": paint_and_shift.get("layout_shift"),
+                    }
+                    lh_section = compute_lighthouse_style_scores(
+                        nav_timing, cdp_metrics, paint_and_shift, resource_data
+                    )
+                    perf_data["lighthouse"] = lh_section
+                except Exception as _lh_err:
+                    logger.warning("Lighthouse scoring skipped for %s: %s", url, _lh_err)
+                    perf_data["lighthouse"] = lh_section
                 # Store performance data on the endpoint record
                 ep = self.registry.get(url, method)
                 if ep is not None:
