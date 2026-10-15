@@ -84,6 +84,11 @@ class Settings(BaseSettings):
     # When false (default), it degrades to SQLite with a loud warning —
     # keeps local dev, CI, and demo installs working.
     database_require_postgres: bool = False
+
+    # Jira integration (platform-wide defaults; per-monitor values win)
+    jira_url: str = ""        # e.g. https://yourcompany.atlassian.net
+    jira_project: str = ""    # e.g. QA
+    jira_api_token: str = ""  # Atlassian API token (Bearer)
     # When true, crawls open Redis on a per-tenant logical DB (1–15)
     tenant_redis_isolation: bool = True
 

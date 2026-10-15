@@ -190,12 +190,20 @@ async def update_monitor(
     allowed = {
         "name", "url", "interval_minutes", "notify_url",
         "is_active", "max_pages", "max_depth", "browser_matrix",
+        "jira_url", "jira_project",
     }
     now = datetime.now(UTC)
     for key, value in req.items():
         if key not in allowed:
             continue
+        if key == "jira_project" and value is not None:
+            value = str(value).strip().upper()[:64] or None
         setattr(m, key, value)
+    # Jira token arrives in plain form only here — encrypt at rest.
+    if req.get("jira_token"):
+        from src.core.secrets_crypto import encrypt_secret
+
+        m.jira_token_encrypted = encrypt_secret(str(req["jira_token"]))
     # Pause clears the schedule; resume re-arms it from now.
     if req.get("is_active") is False:
         m.next_run_at = None
@@ -429,7 +437,11 @@ async def notify_webhook(url: str, payload: dict[str, Any]) -> bool:
 
 
 async def maybe_notify_job_completion(db: Session, job: Job) -> None:
-    """If this job was fired by a monitor with notify_url, post a summary."""
+    """Notify integrations if this job was fired by a monitor.
+
+    Slack: Block Kit summary via notify_url. Jira: tickets for
+    BLOCKING/FUNCTIONAL issues when jira config resolves. All non-fatal.
+    """
     try:
         if not getattr(job, "id", None):
             return
@@ -438,16 +450,35 @@ async def maybe_notify_job_completion(db: Session, job: Job) -> None:
             .filter(MonitorSchedule.last_job_id == job.id, MonitorSchedule.is_active == True)  # noqa: E712
             .first()
         )
-        if not m or not m.notify_url:
+        if not m:
             return
-        text = (
-            f"*CBTP monitor:* {m.name}\n"
-            f"*URL:* {job.url}\n"
-            f"*Status:* {job.status.value if hasattr(job.status, 'value') else job.status}\n"
-            f"*Pages visited:* {job.pages_visited}\n"
-            f"*Issues found:* {job.issues_found}\n"
-            f"*Report:* /jobs/{job.id}/report"
-        )
-        await notify_webhook(m.notify_url, {"text": text})
+
+        from src.models.database import Issue
+
+        issues = db.query(Issue).filter_by(job_id=job.id).all()
+        dashboard_url = f"/jobs/{job.id}/dashboard"
+
+        # Slack (rich payload when configured; plain-text fallback kept)
+        if m.notify_url:
+            from src.api.integrations import notify_slack
+
+            sent = await notify_slack(m.notify_url, job, issues, dashboard_url)
+            if not sent:
+                text = (
+                    f"*CBTP monitor:* {m.name}\n"
+                    f"*URL:* {job.url}\n"
+                    f"*Status:* {job.status.value if hasattr(job.status, 'value') else job.status}\n"
+                    f"*Pages visited:* {job.pages_visited}\n"
+                    f"*Issues found:* {job.issues_found}\n"
+                    f"*Report:* /jobs/{job.id}/report"
+                )
+                await notify_webhook(m.notify_url, {"text": text})
+
+        # Jira (env-level or per-monitor config)
+        from src.api.integrations import notify_jira
+
+        created = await notify_jira(m, job, issues, settings=None)
+        if created:
+            logger.info("Created Jira tickets for job %s: %s", job.id, created)
     except Exception:
         logger.exception("notify_job_completion failed (non-fatal)")
