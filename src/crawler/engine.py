@@ -992,6 +992,35 @@ class CrawlEngine:
                 api_summary=getattr(self, "api_test_summary", None),
             )
             logger.info(f"Generated Allure results at {allure_dir}")
+
+            # WCAG 2.1 conformance + VPAT-style ACR exports (non-fatal).
+            # Evidence: axe-core reports collected per visited page.
+            with contextlib.suppress(Exception):
+                from src.analysis.wcag_export import (
+                    build_wcag_conformance,
+                    render_vpat_html,
+                    render_vpat_markdown,
+                )
+
+                a11y_list = list(self.a11y_results.values())
+                if a11y_list:
+                    conformance = build_wcag_conformance(a11y_list, base_url=self.job.url)
+                    vpat_md = render_vpat_markdown(conformance, product_name=self.job.url)
+                    vpat_html = render_vpat_html(conformance, product_name=self.job.url)
+                    export_dir = (_p.get("job_root") or "reports")
+                    os.makedirs(export_dir, exist_ok=True)
+                    md_path = f"{export_dir}/vpat_acr_{self.job_id}.md"
+                    html_path = f"{export_dir}/vpat_acr_{self.job_id}.html"
+                    with open(md_path, "w", encoding="utf-8") as f:
+                        f.write(vpat_md)
+                    with open(html_path, "w", encoding="utf-8") as f:
+                        f.write(vpat_html)
+                    # also stash JSON for the API/UI
+                    import json as _json
+
+                    with open(f"{export_dir}/wcag_conformance_{self.job_id}.json", "w", encoding="utf-8") as f:
+                        _json.dump(conformance, f, indent=2)
+                    logger.info(f"Generated WCAG/VPAT exports at {export_dir}")
         except Exception as e:
             logger.error(f"Failed to generate reports: {e}")
 

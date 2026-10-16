@@ -1174,6 +1174,74 @@ async def download_report_file(
     return FileResponse(path=report_path, media_type="text/html", filename=f"crawl_report_{job_id}.html")
 
 
+@app.get("/jobs/{job_id}/vpat/download")
+async def download_vpat(
+    job_id: str,
+    fmt: str = "html",
+    db: Session = Depends(get_db),
+    current_user: PlatformUser = Depends(get_current_user),
+):
+    """Download the WCAG conformance / VPAT-style ACR for a job (owner-only).
+
+    fmt=html → standalone ACR document; fmt=md → Markdown; fmt=json → raw
+    conformance data. Files live in the job's tenant folder (fallback legacy
+    reports/ for pre-tenant jobs).
+    """
+    import os
+
+    if fmt not in ("html", "md", "json"):
+        raise HTTPException(status_code=400, detail="fmt must be html, md or json")
+
+    job = _get_owned_job(db, job_id, current_user)
+    iso = (job.config or {}).get("isolation") or {}
+    paths = iso.get("paths") or {}
+
+    names = {
+        "html": f"vpat_acr_{job_id}.html",
+        "md": f"vpat_acr_{job_id}.md",
+        "json": f"wcag_conformance_{job_id}.json",
+    }
+    medias = {"html": "text/html", "md": "text/markdown", "json": "application/json"}
+
+    candidates = []
+    if paths.get("job_root"):
+        candidates.append(f"{paths['job_root']}/{names[fmt]}")
+    candidates.append(f"reports/{names[fmt]}")
+
+    target = next((p for p in candidates if os.path.exists(p)), None)
+    if not target:
+        raise HTTPException(
+            status_code=404,
+            detail="VPAT/ACR not generated for this job (no accessibility data or export failed)",
+        )
+    return FileResponse(path=target, media_type=medias[fmt], filename=names[fmt])
+
+
+@app.get("/jobs/{job_id}/wcag-conformance")
+async def get_wcag_conformance(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user: PlatformUser = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Return the WCAG conformance JSON inline (owner-only)."""
+    import json
+    import os
+
+    job = _get_owned_job(db, job_id, current_user)
+    iso = (job.config or {}).get("isolation") or {}
+    paths = iso.get("paths") or {}
+    name = f"wcag_conformance_{job_id}.json"
+    candidates = []
+    if paths.get("job_root"):
+        candidates.append(f"{paths['job_root']}/{name}")
+    candidates.append(f"reports/{name}")
+    target = next((p for p in candidates if os.path.exists(p)), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="WCAG conformance data not generated for this job")
+    with open(target, encoding="utf-8") as f:
+        return json.load(f)
+
+
 @app.get("/jobs/{job_id}/screenshots/{path:path}")
 async def serve_job_screenshot(
     job_id: str,
