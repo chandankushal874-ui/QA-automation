@@ -10,6 +10,9 @@ import {
   mfaSetup,
   mfaConfirm,
   mfaDisable,
+  listApiTokens,
+  createApiToken,
+  revokeApiToken,
 } from "@/lib/api";
 import { useForm } from "@tanstack/react-form";
 import { Loader2, ShieldCheck } from "lucide-react";
@@ -144,6 +147,7 @@ export default function DashboardSettings() {
       </form>
 
       <MfaCard />
+      <ApiTokensSection />
     </div>
   );
 }
@@ -389,6 +393,126 @@ function MfaCard() {
               </form>
             ) : null}
           </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ApiTokensSection() {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [freshToken, setFreshToken] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["api-tokens"],
+    queryFn: listApiTokens,
+  });
+
+  const createMut = useMutation({
+    mutationFn: () => createApiToken(name.trim() || "ci-token"),
+    onSuccess: (res) => {
+      setFreshToken(res.token);
+      setName("");
+      setError("");
+      queryClient.invalidateQueries({ queryKey: ["api-tokens"] });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const revokeMut = useMutation({
+    mutationFn: (id: string) => revokeApiToken(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["api-tokens"] }),
+  });
+
+  return (
+    <section className="flex w-full flex-col items-start rounded-lg border border-border bg-card">
+      <div className="flex w-full flex-col gap-4 rounded-lg p-6">
+        <div className="flex flex-col gap-2">
+          <h2 className="text-xl font-medium text-primary">API Tokens (CI/CD)</h2>
+          <p className="text-sm font-normal text-primary/60">
+            Programmatic access with the same isolation and slot limits as your
+            login. Use in GitHub Actions with scripts/ci_gate.py.
+          </p>
+        </div>
+
+        <form
+          className="flex flex-col gap-2 sm:flex-row sm:items-center"
+          onSubmit={(e) => {
+            e.preventDefault();
+            createMut.mutate();
+          }}
+        >
+          <Input
+            placeholder="Token name (e.g. github-actions)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="sm:w-72"
+          />
+          <Button type="submit" size="sm" disabled={createMut.isPending}>
+            {createMut.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : null}
+            Create token
+          </Button>
+        </form>
+
+        {freshToken ? (
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4">
+            <p className="mb-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              Copy this token now — it is shown exactly once:
+            </p>
+            <code className="block break-all rounded bg-black/10 p-2 font-mono text-xs dark:bg-black/40">
+              {freshToken}
+            </code>
+          </div>
+        ) : null}
+        {error ? <p className="text-sm text-red-500">{error}</p> : null}
+
+        {isLoading ? (
+          <p className="text-sm text-primary/60">Loading…</p>
+        ) : (data?.tokens.length ?? 0) === 0 ? (
+          <p className="text-sm text-primary/60">No tokens yet.</p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-border text-primary/60">
+                <th className="py-2 pr-3 font-medium">Name</th>
+                <th className="py-2 pr-3 font-medium">Created</th>
+                <th className="py-2 pr-3 font-medium">Last used</th>
+                <th className="py-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data!.tokens.map((t) => (
+                <tr key={t.id} className="border-b border-border/50">
+                  <td className="py-2.5 pr-3 font-medium text-primary/90">{t.name}</td>
+                  <td className="py-2.5 pr-3 text-primary/70">
+                    {new Date(t.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="py-2.5 pr-3 text-primary/70">
+                    {t.last_used_at
+                      ? new Date(t.last_used_at).toLocaleDateString()
+                      : "—"}
+                  </td>
+                  <td className="py-2.5">
+                    {t.is_active ? (
+                      <Button
+                        variant="ghost" size="sm"
+                        className="text-red-500 hover:text-red-600"
+                        onClick={() => revokeMut.mutate(t.id)}
+                      >
+                        Revoke
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-zinc-500">revoked</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </section>

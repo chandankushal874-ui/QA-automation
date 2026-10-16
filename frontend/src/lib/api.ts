@@ -365,3 +365,127 @@ export async function createPlatformUser(data: {
   }
   return res.json();
 }
+
+// ── API tokens (CI/CD) ──
+
+export async function listApiTokens() {
+  const res = await authFetch('/api/me/tokens');
+  if (!res.ok) throw new Error('Failed to list tokens');
+  return res.json() as Promise<{
+    tokens: Array<{ id: string; name: string; created_at: string; last_used_at: string | null; is_active: boolean }>;
+    total: number;
+  }>;
+}
+
+export async function createApiToken(name: string) {
+  const res = await authFetch('/api/me/tokens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to create token' }));
+    throw new Error(err.detail || 'Failed to create token');
+  }
+  return res.json() as Promise<{ token: string; record: { id: string; name: string } }>;
+}
+
+export async function revokeApiToken(tokenId: string) {
+  const res = await authFetch(`/api/me/tokens/${tokenId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to revoke token');
+  return res.json();
+}
+
+// ── Monitors (scheduled crawls) ──
+
+export interface MonitorRow {
+  id: string;
+  name: string;
+  url: string;
+  interval_minutes: number;
+  max_pages: number;
+  max_depth: number;
+  notify_url: string | null;
+  is_active: boolean;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_job_id: string | null;
+}
+
+export async function listMonitors() {
+  const res = await authFetch('/api/me/monitors');
+  if (!res.ok) throw new Error('Failed to list monitors');
+  return res.json() as Promise<{ monitors: MonitorRow[]; total: number }>;
+}
+
+export async function createMonitor(data: {
+  name: string;
+  url: string;
+  interval_minutes: number;
+  max_pages?: number;
+  max_depth?: number;
+  notify_url?: string;
+}) {
+  const res = await authFetch('/api/me/monitors', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to create monitor' }));
+    throw new Error(err.detail || 'Failed to create monitor');
+  }
+  return res.json() as Promise<MonitorRow>;
+}
+
+export async function updateMonitor(id: string, patch: Record<string, unknown>) {
+  const res = await authFetch(`/api/me/monitors/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error('Failed to update monitor');
+  return res.json() as Promise<MonitorRow>;
+}
+
+export async function deleteMonitor(id: string) {
+  const res = await authFetch(`/api/me/monitors/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete monitor');
+  return res.json();
+}
+
+export async function runMonitorNow(id: string) {
+  const res = await authFetch(`/api/me/monitors/${id}/run-now`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Run failed' }));
+    throw new Error(err.detail || 'Run failed');
+  }
+  return res.json() as Promise<{ submitted: boolean; job_id: string | null; error: string | null }>;
+}
+
+// ── Flaky registry ──
+
+export async function listFlakyRegistry(status?: string) {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await authFetch(`/api/me/flaky-registry${qs}`);
+  if (!res.ok) throw new Error('Failed to load flaky registry');
+  return res.json() as Promise<{
+    registry: Array<{
+      id: string; fingerprint: string; title: string; status: string;
+      flip_rate: number; samples: number; last_seen_at: string | null;
+    }>;
+    total: number;
+  }>;
+}
+
+export async function confirmFlaky(fingerprint: string) {
+  const res = await authFetch(`/api/me/flaky-registry/${encodeURIComponent(fingerprint)}/confirm`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to confirm');
+  return res.json();
+}
+
+export async function resetFlaky(fingerprint: string) {
+  const res = await authFetch(`/api/me/flaky-registry/${encodeURIComponent(fingerprint)}/reset`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to reset');
+  return res.json();
+}

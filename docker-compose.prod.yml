@@ -242,7 +242,8 @@ services:
     container_name: cbtp-frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
+      # Host 3001: another node process owns localhost:3000 on this machine.
+      - "3001:80"
     depends_on:
       - api
 

@@ -28,6 +28,7 @@ import { Route as AppAuthDashboardLayoutSettingsImport } from './routes/_app/_au
 import { Route as AppAuthDashboardLayoutNewTestImport } from './routes/_app/_auth/dashboard/_layout.new-test'
 import { Route as AppAuthDashboardLayoutHistoryImport } from './routes/_app/_auth/dashboard/_layout.history'
 import { Route as AppAuthDashboardLayoutAuditImport } from './routes/_app/_auth/dashboard/_layout.audit'
+import { Route as AppAuthDashboardLayoutMonitorsImport } from './routes/_app/_auth/dashboard/_layout.monitors'
 import { Route as AppAuthDashboardLayoutSettingsIndexImport } from './routes/_app/_auth/dashboard/_layout.settings.index'
 import { Route as AppAuthDashboardLayoutReportTestJobIdImport } from './routes/_app/_auth/dashboard/_layout.report.$testJobId'
 
@@ -136,6 +137,12 @@ const AppAuthDashboardLayoutAuditRoute =
     getParentRoute: () => AppAuthDashboardLayoutRoute,
   } as any)
 
+const AppAuthDashboardLayoutMonitorsRoute =
+  AppAuthDashboardLayoutMonitorsImport.update({
+    path: '/monitors',
+    getParentRoute: () => AppAuthDashboardLayoutRoute,
+  } as any)
+
 const AppAuthDashboardLayoutSettingsIndexRoute =
   AppAuthDashboardLayoutSettingsIndexImport.update({
     path: '/',
@@ -236,6 +243,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAuthDashboardLayoutAuditImport
       parentRoute: typeof AppAuthDashboardLayoutImport
     }
+    '/_app/_auth/dashboard/_layout/monitors': {
+      id: '/_app/_auth/dashboard/_layout/monitors'
+      path: '/monitors'
+      fullPath: '/dashboard/monitors'
+      preLoaderRoute: typeof AppAuthDashboardLayoutMonitorsImport
+      parentRoute: typeof AppAuthDashboardLayoutImport
+    }
     '/_app/_auth/dashboard/_layout/history': {
       id: '/_app/_auth/dashboard/_layout/history'
       path: '/history'
@@ -304,6 +318,7 @@ export const routeTree = rootRoute.addChildren({
       AppAuthDashboardRoute: AppAuthDashboardRoute.addChildren({
         AppAuthDashboardLayoutRoute: AppAuthDashboardLayoutRoute.addChildren({
           AppAuthDashboardLayoutAuditRoute,
+          AppAuthDashboardLayoutMonitorsRoute,
           AppAuthDashboardLayoutHistoryRoute,
           AppAuthDashboardLayoutNewTestRoute,
           AppAuthDashboardLayoutSettingsRoute:
@@ -391,6 +406,7 @@ export const routeTree = rootRoute.addChildren({
       "parent": "/_app/_auth/dashboard",
       "children": [
         "/_app/_auth/dashboard/_layout/audit",
+        "/_app/_auth/dashboard/_layout/monitors",
         "/_app/_auth/dashboard/_layout/history",
         "/_app/_auth/dashboard/_layout/new-test",
         "/_app/_auth/dashboard/_layout/settings",
@@ -419,6 +435,10 @@ export const routeTree = rootRoute.addChildren({
     },
     "/_app/_auth/dashboard/_layout/audit": {
       "filePath": "_app/_auth/dashboard/_layout.audit.tsx",
+      "parent": "/_app/_auth/dashboard/_layout"
+    },
+    "/_app/_auth/dashboard/_layout/monitors": {
+      "filePath": "_app/_auth/dashboard/_layout.monitors.tsx",
       "parent": "/_app/_auth/dashboard/_layout"
     },
     "/_app/_auth/dashboard/_layout/history": {

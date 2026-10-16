@@ -12,6 +12,7 @@ import {
   Shield,
   ScrollText,
   BookOpen,
+  Timer,
 } from "lucide-react";
 import { cn, useSignOut } from "@/utils/misc";
 import { ThemeSwitcher } from "@/ui/theme-switcher";
@@ -44,6 +45,7 @@ export function Navigation({ user }: { user: User }) {
   const isSettingsPath = matchRoute({ to: SettingsRoute.fullPath });
   const isUsersPath = matchRoute({ to: "/dashboard/users" });
   const isAuditPath = matchRoute({ to: "/dashboard/audit" });
+  const isMonitorsPath = matchRoute({ to: "/dashboard/monitors" });
   const isDocsPath = matchRoute({ to: "/docs" });
   const isAdmin = user?.role === "admin";
 
@@ -286,6 +288,23 @@ export function Navigation({ user }: { user: User }) {
             </Link>
           </div>
         ) : null}
+        <div
+          className={cn(
+            "flex h-12 items-center border-b-2",
+            isMonitorsPath ? "border-primary" : "border-transparent",
+          )}
+        >
+          <Link
+            to="/dashboard/monitors"
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "text-primary/80 gap-1.5",
+            )}
+          >
+            <Timer className="h-4 w-4" />
+            Monitors
+          </Link>
+        </div>
       </div>
     </nav>
   );

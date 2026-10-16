@@ -165,6 +165,24 @@ function ReportPage() {
                 </span>
               </div>
               {reportHtmlUrl && (
+                <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      await downloadAuthenticatedFile(
+                        `/jobs/${testJobId}/vpat/download?fmt=html`,
+                        `vpat_acr_${testJobId}.html`,
+                      )
+                    } catch {
+                      /* VPAT not generated for this job (no a11y data) — hide silently */
+                    }
+                  }}
+                  title="WCAG 2.1 conformance / VPAT-style ACR (generated when accessibility data exists)"
+                  className="flex items-center gap-2 rounded-md bg-violet-500/10 px-4 py-2 text-sm font-medium text-violet-500 hover:bg-violet-500/20 transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  VPAT / ACR
+                </button>
                 <button
                   onClick={async () => {
                     try {
@@ -181,6 +199,7 @@ function ReportPage() {
                   <Download className="h-4 w-4" />
                   Download HTML Report
                 </button>
+                </div>
               )}
             </div>
 
@@ -312,12 +331,29 @@ function ReportPage() {
                             <span className="text-sm font-semibold text-primary">{issue.title}</span>
                             <span className="text-xs text-primary/60">{issue.description}</span>
                           </div>
+                          <div className="flex flex-col items-end gap-1">
                           <div className={`px-2 py-1 text-xs font-bold uppercase tracking-wider rounded
                             ${issue.severity === 'blocking' ? 'bg-red-500/20 text-red-500' :
                               issue.severity === 'functional' ? 'bg-orange-500/20 text-orange-500' :
                               issue.severity === 'visual' ? 'bg-yellow-500/20 text-yellow-500' :
                               'bg-blue-500/20 text-blue-500'}`}>
                             {issue.severity}
+                          </div>
+                          {issue.flaky_status === 'quarantined' || issue.flaky_status === 'confirmed' ? (
+                            <span
+                              title={`Flaky across crawls (flip rate ${Math.round((issue.flip_rate ?? 0) * 100)}% over ${issue.flaky_samples ?? 0} runs) — excluded from CI gate`}
+                              className="px-2 py-0.5 text-xs font-semibold rounded bg-violet-500/20 text-violet-500"
+                            >
+                              flaky · quarantined
+                            </span>
+                          ) : issue.flaky_status === 'suspected' ? (
+                            <span
+                              title="Sometimes reproduces across crawls — under observation"
+                              className="px-2 py-0.5 text-xs font-semibold rounded bg-violet-500/10 text-violet-400"
+                            >
+                              flaky · suspected
+                            </span>
+                          ) : null}
                           </div>
                         </div>
                         
