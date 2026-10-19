@@ -94,3 +94,54 @@ curl -X DELETE http://<cbtp-host>:8001/api/me/tokens/<token-id> \
 | Enforce functional quality too | `--max-functional 5` |
 | Fast smoke on big sites | `--max-pages 20 --max-depth 2` |
 | All three browsers in CI | `--browsers chromium,firefox,webkit` |
+
+---
+
+## Visual-baseline diff gate (optional)
+
+Beyond issue counts, `ci_gate.py` can diff the PR's crawl against a **visual
+baseline** and fail the check when screenshots regress.
+
+### 1. Create a project + baseline
+
+```bash
+# Create a project (owner-scoped; slug is the CI reference)
+curl -X POST http://<cbtp-host>:8001/api/projects \
+  -H "Authorization: Bearer <jwt-or-token>" -H "Content-Type: application/json" \
+  -d '{"name":"Storefront","slug":"storefront","base_url":"https://shop.example.com"}'
+
+# After a crawl of the *default branch* completes, capture its screenshots
+# as the approved baseline:
+curl -X POST http://<cbtp-host>:8001/api/projects/<id>/baseline \
+  -H "Authorization: Bearer <jwt-or-token>" -H "Content-Type: application/json" \
+  -d '{"job_id":"<job-of-main-crawl>"}'
+```
+
+### 2. Gate CI on the diff
+
+```bash
+python scripts/ci_gate.py \
+  --api-url "$CBTP_API_URL" --token "$CBTP_API_TOKEN" \
+  --target "https://my-app-pr-42.vercel.app" \
+  --project storefront --branch main --max-visual 0 \
+  --max-blocking 0
+```
+
+- `--project <slug>` enables the visual gate; `--branch` defaults to the
+  project's `default_branch`.
+- `--max-visual N` fails the check when **> N** visual `regressions` (changes
+  beyond the project's pixel threshold, minus ignore regions) are detected.
+- `regressions` respect the project's **ignore regions** (dynamic banners,
+  timestamps, carousels) — masked pixels never count.
+
+### 3. Review & approve
+
+- The diff result is a persisted compare: `GET /api/projects/<id>/compare/<cid>`
+  returns per-URL verdicts + image keys.
+- Approve a compare (`POST .../approve`) to promote the new screenshots to the
+  active baseline (superseding the old one) — do this after a deliberate,
+  accepted visual change.
+- Diff/baseline images are served through a tenant-checked artifact proxy:
+  `GET /api/projects/<id>/artifact/<key>`.
+
+Exit codes remain: `0` pass · `1` gate failed (issue or visual) · `2` infra error.

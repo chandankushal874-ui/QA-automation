@@ -35,6 +35,26 @@ inputs:
     description: "Crawl page budget"
     required: false
     default: "50"
+  max-depth:
+    description: "Crawl depth"
+    required: false
+    default: "3"
+  browsers:
+    description: "Comma list: chromium,firefox,webkit"
+    required: false
+    default: "chromium"
+  project:
+    description: "Project slug to diff against (enables visual-baseline gate)"
+    required: false
+    default: ""
+  branch:
+    description: "Branch of this run (defaults to project default_branch)"
+    required: false
+    default: ""
+  max-visual:
+    description: "Max visual REGRESSIONS allowed"
+    required: false
+    default: "0"
   timeout:
     description: "Seconds to wait for crawl completion"
     required: false
@@ -53,6 +73,8 @@ runs:
       env:
         CBTP_API_URL: ${{ inputs.api-url }}
         CBTP_API_TOKEN: ${{ inputs.api-token }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_BRANCH: ${{ inputs.branch }}
       run: |
         pip install --quiet "httpx>=0.27"
         curl -fsSL "${{ inputs.api-url }}/health" > /dev/null \
@@ -68,4 +90,9 @@ runs:
           --max-blocking "${{ inputs.max-blocking }}" \
           --max-functional "${{ inputs.max-functional }}" \
           --max-pages "${{ inputs.max-pages }}" \
+          --max-depth "${{ inputs.max-depth }}" \
+          --browsers "${{ inputs.browsers }}" \
+          ${INPUT_PROJECT:+--project "$INPUT_PROJECT"} \
+          ${INPUT_BRANCH:+--branch "$INPUT_BRANCH"} \
+          --max-visual "${{ inputs.max-visual }}" \
           --timeout "${{ inputs.timeout }}"

@@ -233,6 +233,11 @@ app.include_router(monitors_router)
 from src.api.flaky_registry import router as flaky_router  # noqa: E402
 
 app.include_router(flaky_router)
+
+# Projects + visual-baseline diffing (owner-scoped; additive)
+from src.api.projects import router as projects_router  # noqa: E402
+
+app.include_router(projects_router)
 with contextlib.suppress(Exception):
     start_scheduler(app)
 

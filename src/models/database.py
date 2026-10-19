@@ -138,6 +138,7 @@ class PlatformUser(Base):
 
     jobs: Mapped[list[Job]] = relationship(back_populates="owner")
     api_tokens: Mapped[list[ApiToken]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    projects: Mapped[list[Project]] = relationship(back_populates="owner", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_platform_users_username", "username"),
@@ -216,6 +217,126 @@ class ApiToken(Base):
 
     __table_args__ = (
         Index("ix_api_tokens_user_id", "user_id"),
+    )
+
+
+class Project(Base):
+    """A visual-regression project: a named, owner-scoped grouping for
+    baselines and diffs across branches/URLs/browsers/viewports.
+
+    Baselines are diffed against a *stable* reference (the default branch's
+    approved screenshots), which is what turns single-crawl detection into
+    regression testing. Owned by a platform user; every child row (baselines,
+    compare results) is namespaced under this project's tenant.
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    default_branch: Mapped[str] = mapped_column(String(100), default="main", nullable=False)
+    # Viewports used when capturing/diffing screenshots.
+    viewports: Mapped[list[Any]] = mapped_column(
+        JSON_TYPE, default=lambda: [{"width": 1280, "height": 720}], nullable=False
+    )
+    # Ignore regions: [{"selector": "..."} | {"x":0,"y":0,"width":0,"height":0}, ...]
+    ignore_regions: Mapped[list[Any]] = mapped_column(JSON_TYPE, default=list, nullable=False)
+    # Mismatch percentage (0.0-100.0) above which a diff is a "regression".
+    threshold: Mapped[float] = mapped_column(Float, default=0.1, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    owner: Mapped[PlatformUser] = relationship(back_populates="projects")
+    baselines: Mapped[list[VisualBaseline]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_projects_owner_slug", "owner_id", "slug", unique=True),
+        Index("ix_projects_owner_id", "owner_id"),
+    )
+
+
+class VisualBaseline(Base):
+    """One approved screenshot for a (project, branch, url, browser, viewport).
+
+    The active baseline for a given identity is what new crawls are diffed
+    against. Approving a diff supersedes the previous active row. Images are
+    stored in S3/MinIO under a tenant-namespaced key; only the key + hash are
+    persisted here (no image bytes in the DB).
+    """
+
+    __tablename__ = "visual_baselines"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    branch: Mapped[str] = mapped_column(String(100), nullable=False)
+    url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    browser: Mapped[str] = mapped_column(String(20), nullable=False)  # chromium/firefox/webkit
+    viewport: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, nullable=False)  # {"width":..,"height":..}
+    object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
+    thumb_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    image_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA-256 hex
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active|superseded
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    project: Mapped[Project] = relationship(back_populates="baselines")
+
+    __table_args__ = (
+        Index(
+            "ix_visual_baselines_identity",
+            "project_id", "branch", "url", "browser",
+        ),
+        Index("ix_visual_baselines_project_status", "project_id", "status"),
+    )
+
+
+class VisualCompare(Base):
+    """A persisted diff run: a job's screenshots compared against a project's
+    active baselines. Results are stored as JSON so the diff viewer can render
+    them without recomputing; image artifacts live in S3 (keys referenced in
+    the results payload).
+    """
+
+    __tablename__ = "visual_compares"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    branch: Mapped[str] = mapped_column(String(100), nullable=False)
+    # [{url, browser, verdict, mismatch_percentage, changed_pixels,
+    #   baseline_url, current_url, diff_url, error}, ...]
+    results: Mapped[list[Any]] = mapped_column(JSON_TYPE, default=list, nullable=False)
+    regressions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    matches: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    new_baselines: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="completed", nullable=False)  # completed|failed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    project: Mapped[Project] = relationship()
+
+    __table_args__ = (
+        Index("ix_visual_compares_project", "project_id", "created_at"),
     )
 
 

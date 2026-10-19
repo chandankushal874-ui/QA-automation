@@ -59,8 +59,11 @@ jobs:
           CBTP_API_URL: ${{ secrets.CBTP_API_URL }}
           CBTP_API_TOKEN: ${{ secrets.CBTP_API_TOKEN }}
           TARGET: ${{ steps.target.outputs.url }}
+          CBTP_PROJECT: ${{ vars.CBTP_PROJECT || '' }}
+          CBTP_BRANCH: ${{ vars.CBTP_BRANCH || '' }}
         run: |
           # Fail the job only on BLOCKING issues; functional threshold is advisory.
+          # When CBTP_PROJECT is set, a visual-baseline diff also gates the PR.
           python scripts/ci_gate.py \
             --api-url "$CBTP_API_URL" \
             --token "$CBTP_API_TOKEN" \
@@ -69,7 +72,9 @@ jobs:
             --max-functional -1 \
             --max-pages 50 \
             --max-depth 3 \
-            --timeout 1800
+            --timeout 1800 \
+            ${CBTP_PROJECT:+--project "$CBTP_PROJECT"} \
+            ${CBTP_BRANCH:+--branch "$CBTP_BRANCH"}
 
       - name: Comment PR with QA result
         if: always() && steps.gate.outcome != 'skipped'

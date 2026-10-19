@@ -133,6 +133,9 @@ services:
       - DATABASE_REQUIRE_POSTGRES=${DATABASE_REQUIRE_POSTGRES:-false}
     volumes:
       - ./reports:/app/reports
+      # Shared tenant artifacts (screenshots, baselines) between api + workers —
+      # required so the visual-compare API can read worker-written snapshots.
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -197,6 +200,9 @@ services:
       - DATABASE_REQUIRE_POSTGRES=${DATABASE_REQUIRE_POSTGRES:-false}
     volumes:
       - ./reports:/app/reports
+      # Shared tenant artifacts (screenshots, baselines) between api + workers —
+      # required so the visual-compare API can read worker-written snapshots.
+      - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy

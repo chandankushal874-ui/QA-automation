@@ -29,6 +29,61 @@ import httpx
 TERMINAL = {"completed", "failed", "cancelled"}
 
 
+def _resolve_project_id(c: httpx.Client, slug: str) -> str | None:
+    """Resolve a project slug to its id via the projects list API."""
+    r = c.get("/api/projects")
+    if r.status_code != 200:
+        return None
+    for p in r.json().get("projects", []):
+        if p.get("slug") == slug:
+            return p["id"]
+    return None
+
+
+def run_visual_gate(
+    c: httpx.Client,
+    project_slug: str,
+    job_id: str,
+    branch: str | None,
+    max_visual: int,
+) -> dict[str, Any]:
+    """Diff the completed job against the project baseline and return stats.
+
+    Returns {project_id, compare_id, regressions, matches, new_baselines,
+    total, results, skipped} where skipped=True when the project or diff
+    endpoint is unavailable (infrastructure error, not a regression).
+    """
+    project_id = _resolve_project_id(c, project_slug)
+    if project_id is None:
+        die(2, f"project slug '{project_slug}' not found (or API list failed)")
+    payload: dict[str, Any] = {"job_id": job_id}
+    if branch:
+        payload["branch"] = branch
+    r = c.post(f"/api/projects/{project_id}/compare", json=payload)
+    if r.status_code >= 500:
+        die(2, f"compare failed ({r.status_code}): {r.text[:200]}")
+    if r.status_code == 404:
+        die(2, "compare endpoint unavailable (404) — is the projects API deployed?")
+    if r.status_code != 201:
+        die(2, f"compare failed ({r.status_code}): {r.text[:200]}")
+    body = r.json()
+    body["project_id"] = project_id
+    return body
+
+
+def print_visual_summary(vg: dict[str, Any]) -> None:
+    print("\n===== CBTP Visual Diff Summary =====")
+    print(f"Project:   {vg['project_id']}")
+    print(f"Branch:    {vg.get('branch', 'default')}")
+    print(f"Regressions: {vg['regressions']}")
+    print(f"Matches:     {vg['matches']}")
+    print(f"New baselines:{vg['new_baselines']}")
+    for res in vg.get("results", []):
+        if res.get("verdict") == "regression":
+            pct = res.get("mismatch_percentage", 0.0)
+            print(f"  - {res.get('url')} [{res.get('browser')}]: {pct:.4f}% changed")
+
+
 def die(code: int, msg: str) -> None:
     print(f"::error::{msg}", file=sys.stderr)
     sys.exit(code)
@@ -74,6 +129,10 @@ def main() -> None:
     ap.add_argument("--max-pages", type=int, default=50, help="Crawl budget for CI")
     ap.add_argument("--max-depth", type=int, default=3, help="Crawl depth for CI")
     ap.add_argument("--browsers", default="chromium", help="Comma list: chromium,firefox,webkit")
+    # Visual-baseline diff gating (additive; requires --project).
+    ap.add_argument("--project", default=None, help="Project slug to diff against (enables visual gate)")
+    ap.add_argument("--branch", default=None, help="Branch of this run (defaults to the project's default_branch)")
+    ap.add_argument("--max-visual", type=int, default=0, help="Max visual REGRESSIONS allowed (default 0)")
     args = ap.parse_args()
 
     matrix = {b.strip(): True for b in args.browsers.split(",") if b.strip()}
@@ -156,11 +215,24 @@ def main() -> None:
             print(f"::error::CBTP gate: {sev['functional']} functional issues (max {args.max_functional})")
             failed = True
 
+        # Visual-baseline gate (only when --project is provided).
+        visual = None
+        if args.project:
+            visual = run_visual_gate(c, args.project, job_id, args.branch, args.max_visual)
+            print_visual_summary(visual)
+            if visual["regressions"] > args.max_visual:
+                print(f"::error::CBTP visual gate: {visual['regressions']} regressions (max {args.max_visual})")
+                failed = True
+
         print(json.dumps({
             "job_id": job_id,
             "blocking": sev["blocking"],
             "functional": sev["functional"],
             "pages": report["pages_visited"],
+            "visual": {
+                "regressions": visual["regressions"],
+                "compare_id": visual.get("compare_id"),
+            } if visual else None,
         }))
         sys.exit(1 if failed else 0)
 
