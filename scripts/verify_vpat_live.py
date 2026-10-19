@@ -14,21 +14,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["DATABASE_URL_SYNC"] = "sqlite:///./cbtp_vpat_live.db"
 os.environ["REDIS_URL"] = "redis://127.0.0.1:9/0"
 
-import asyncio  # noqa: E402
-import logging  # noqa: E402
-import uuid  # noqa: E402
+import asyncio
+import logging
+import uuid
 
 logging.basicConfig(level=logging.INFO)
 
 if os.path.exists("cbtp_vpat_live.db"):
     os.remove("cbtp_vpat_live.db")
 
-from src.core.mock_redis import MockRedis  # noqa: E402
-from src.models.database import (  # noqa: E402
-    Base, Issue, Job, JobStatus, PlatformUser, UserRole,
-)
 from src.api.app import SessionLocal, engine  # noqa: E402
 from src.api.auth import hash_password  # noqa: E402
+from src.core.mock_redis import MockRedis  # noqa: E402
+from src.models.database import (  # noqa: E402
+    Base,
+    Job,
+    JobStatus,
+    PlatformUser,
+    UserRole,
+)
 
 Base.metadata.create_all(bind=engine)
 

@@ -24,7 +24,7 @@ try:
     check("frontend :3001 serving", r.status_code == 200)
     r = httpx.get("http://localhost", timeout=10)  # nginx proxy
     check("nginx :80 proxy serving", r.status_code == 200)
-except Exception as e:  # noqa: BLE001
+except Exception as e:
     check("frontend serving", False, str(e)[:100])
 
 # 2. Login (regular user)
@@ -34,7 +34,7 @@ check("user login", r.status_code == 200)
 h = {"Authorization": f"Bearer {r.json()['token']}"}
 
 # 3. Every new feature endpoint
-for name, method, path, body in [
+for name, _method, path, _body in [
     ("crawler slots", "GET", "/api/me/crawler-slots", None),
     ("monitors list", "GET", "/api/me/monitors", None),
     ("monitors create+delete", "POST", "/api/me/monitors", None),
@@ -59,7 +59,7 @@ for name, method, path, body in [
             r = c.get(path, headers=h)
             ok = r.status_code == 200
         check(name, ok, f"{r.status_code}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         check(name, False, str(e)[:100])
 
 # 4. Token-authenticated CI path (as the UI instructs)
