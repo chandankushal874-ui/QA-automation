@@ -14,6 +14,8 @@ import {
   BookOpen,
   Timer,
   Layers,
+  Route,
+  Link2,
 } from "lucide-react";
 import { cn, useSignOut } from "@/utils/misc";
 import { ThemeSwitcher } from "@/ui/theme-switcher";
@@ -48,6 +50,8 @@ export function Navigation({ user }: { user: User }) {
   const isAuditPath = matchRoute({ to: "/dashboard/audit" });
   const isMonitorsPath = matchRoute({ to: "/dashboard/monitors" });
   const isProjectsPath = matchRoute({ to: "/dashboard/projects" });
+  const isJourneysPath = matchRoute({ to: "/dashboard/journeys" });
+  const isTunnelsPath = matchRoute({ to: "/dashboard/tunnels" });
   const isDocsPath = matchRoute({ to: "/docs" });
   const isAdmin = user?.role === "admin";
 
@@ -322,6 +326,40 @@ export function Navigation({ user }: { user: User }) {
           >
             <Layers className="h-4 w-4" />
             Projects
+          </Link>
+        </div>
+        <div
+          className={cn(
+            "flex h-12 items-center border-b-2",
+            isJourneysPath ? "border-primary" : "border-transparent",
+          )}
+        >
+          <Link
+            to="/dashboard/journeys"
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "text-primary/80 gap-1.5",
+            )}
+          >
+            <Route className="h-4 w-4" />
+            Journeys
+          </Link>
+        </div>
+        <div
+          className={cn(
+            "flex h-12 items-center border-b-2",
+            isTunnelsPath ? "border-primary" : "border-transparent",
+          )}
+        >
+          <Link
+            to="/dashboard/tunnels"
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "text-primary/80 gap-1.5",
+            )}
+          >
+            <Link2 className="h-4 w-4" />
+            Tunnels
           </Link>
         </div>
       </div>

@@ -216,6 +216,7 @@ export async function createJob(data: {
   max_depth?: number;
   repo_url?: string;
   config?: Record<string, unknown>;
+  device?: string;
   credentials?: {
     username?: string;
     password?: string;
@@ -655,4 +656,140 @@ export async function fetchArtifactBlobUrl(projectId: string, key: string): Prom
   if (!res.ok) throw new Error('Artifact not found');
   const blob = await res.blob();
   return URL.createObjectURL(blob);
+}
+
+// ── Journeys (multi-step user flows) ──
+
+export interface JourneyStep {
+  action: string;
+  selector?: string;
+  value?: string;
+  url?: string;
+  text?: string;
+  expect?: string;
+  ms?: number;
+  username?: string;
+  password?: string;
+  label?: string;
+}
+
+export interface JourneyRow {
+  id: string;
+  job_id: string | null;
+  name: string;
+  description: string;
+  status: string;
+  steps: JourneyStep[];
+  results: Record<string, unknown>;
+  created_at: string | null;
+}
+
+export async function listJourneys() {
+  const res = await authFetch('/api/journeys');
+  if (!res.ok) throw new Error('Failed to list journeys');
+  return res.json() as Promise<{ journeys: JourneyRow[]; total: number }>;
+}
+
+export async function createJourney(data: {
+  job_id: string;
+  name: string;
+  description?: string;
+  steps: JourneyStep[];
+  browser_matrix?: { chromium: boolean; firefox: boolean; webkit: boolean };
+  stop_on_failure?: boolean;
+}) {
+  const res = await authFetch('/api/journeys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to create journey' }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : 'Failed to create journey');
+  }
+  return res.json() as Promise<JourneyRow>;
+}
+
+export async function getJourney(journeyId: string) {
+  const res = await authFetch(`/api/journeys/${journeyId}`);
+  if (!res.ok) throw new Error('Journey not found');
+  return res.json() as Promise<JourneyRow>;
+}
+
+export async function deleteJourney(journeyId: string) {
+  const res = await authFetch(`/api/journeys/${journeyId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete journey');
+  return res.json();
+}
+
+export async function runJourney(journeyId: string) {
+  const res = await authFetch(`/api/journeys/${journeyId}/run`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to run journey');
+  return res.json() as Promise<{ run_id: string; journey_id: string; status: string }>;
+}
+
+export async function getJourneyRun(journeyId: string, runId: string) {
+  const res = await authFetch(`/api/journeys/${journeyId}/run/${runId}`);
+  if (!res.ok) throw new Error('Run not found');
+  return res.json() as Promise<{
+    run_id: string;
+    status: string;
+    results: Record<string, { passed: boolean; error?: string; steps: Array<{ index: number; action: string; status: string; error: string; duration_ms: number }> }>;
+    error: string;
+  }>;
+}
+
+// ── Devices ──
+
+export interface DeviceRow {
+  name: string;
+  viewport: { width: number; height: number };
+  device_scale_factor: number;
+  is_mobile: boolean;
+  has_touch: boolean;
+  default_browser: string;
+}
+
+export async function listDevices() {
+  const res = await fetch(`${API_BASE}/api/devices`);
+  if (!res.ok) throw new Error('Failed to load devices');
+  return res.json() as Promise<{ devices: DeviceRow[]; total: number }>;
+}
+
+// ── Tunnels ──
+
+export interface TunnelRow {
+  id: string;
+  name: string;
+  tunnel_token: string;
+  target_origin: string;
+  status: string;
+  target_url: string;
+  expires_at: string | null;
+  created_at: string | null;
+}
+
+export async function listTunnels() {
+  const res = await authFetch('/api/tunnels');
+  if (!res.ok) throw new Error('Failed to list tunnels');
+  return res.json() as Promise<{ tunnels: TunnelRow[]; total: number }>;
+}
+
+export async function createTunnel(data: { name: string; target_origin?: string }) {
+  const res = await authFetch('/api/tunnels', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to create tunnel' }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : 'Failed to create tunnel');
+  }
+  return res.json() as Promise<TunnelRow & { agent_token: string }>;
+}
+
+export async function revokeTunnel(tunnelId: string) {
+  const res = await authFetch(`/api/tunnels/${tunnelId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to revoke tunnel');
+  return res.json();
 }

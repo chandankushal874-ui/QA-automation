@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Loader2, Globe, Shield, Settings2, Layers } from "lucide-react";
 import { Button } from "@/ui/button";
 import { Switch } from "@/ui/switch";
-import { createJob, getCrawlerSlots } from "@/lib/api";
+import { createJob, getCrawlerSlots, listDevices } from "@/lib/api";
 import { Route as ReportRoute } from "@/routes/_app/_auth/dashboard/_layout.report.$testJobId";
 import siteConfig from "~/site.config";
 
@@ -38,12 +38,18 @@ export default function NewTest() {
   });
   const [environment, setEnvironment] = useState("dev");
   const [showBrowser, setShowBrowser] = useState(false);
+  const [device, setDevice] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { data: slots, refetch: refetchSlots } = useQuery({
     queryKey: ["crawler-slots"],
     queryFn: getCrawlerSlots,
     refetchInterval: 4_000,
+  });
+
+  const { data: devicesData } = useQuery({
+    queryKey: ["devices"],
+    queryFn: listDevices,
   });
 
   const isLocalUrl = (u: string) => {
@@ -77,6 +83,7 @@ export default function NewTest() {
         max_depth: maxDepth,
         repo_url: repoUrl || undefined,
         config: showBrowser ? { show_browser: true } : undefined,
+        device: device || undefined,
         credentials: credentials.username
           ? {
               username: credentials.username,
@@ -278,6 +285,29 @@ export default function NewTest() {
                   ))}
                 </div>
               </div>
+
+              {/* Device emulation */}
+              {devicesData && devicesData.devices.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-primary">Device emulation (optional)</label>
+                  <select
+                    value={device}
+                    onChange={(e) => setDevice(e.target.value)}
+                    className="w-full max-w-xs rounded-md border border-border bg-secondary/50 px-3 py-2 text-sm text-primary/90 focus:outline-none"
+                  >
+                    <option value="">No emulation — default desktop viewport</option>
+                    {devicesData.devices.map((d) => (
+                      <option key={d.name} value={d.name}>
+                        {d.name} ({d.viewport.width}×{d.viewport.height}{d.is_mobile ? " · mobile" : ""})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-primary/50">
+                    Emulates viewport, user-agent, and touch via Playwright device
+                    descriptors. Not real hardware.
+                  </p>
+                </div>
+              )}
 
               {/* Live Browser Window (headed mode) */}
               <div className="flex flex-col gap-2">

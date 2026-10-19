@@ -31,6 +31,9 @@ import { Route as AppAuthDashboardLayoutAuditImport } from './routes/_app/_auth/
 import { Route as AppAuthDashboardLayoutMonitorsImport } from './routes/_app/_auth/dashboard/_layout.monitors'
 import { Route as AppAuthDashboardLayoutProjectsImport } from './routes/_app/_auth/dashboard/_layout.projects'
 import { Route as AppAuthDashboardLayoutProjectProjectIdImport } from './routes/_app/_auth/dashboard/_layout.project.$projectId'
+import { Route as AppAuthDashboardLayoutJourneysImport } from './routes/_app/_auth/dashboard/_layout.journeys'
+import { Route as AppAuthDashboardLayoutJourneyJourneyIdImport } from './routes/_app/_auth/dashboard/_layout.journey.$journeyId'
+import { Route as AppAuthDashboardLayoutTunnelsImport } from './routes/_app/_auth/dashboard/_layout.tunnels'
 import { Route as AppAuthDashboardLayoutSettingsIndexImport } from './routes/_app/_auth/dashboard/_layout.settings.index'
 import { Route as AppAuthDashboardLayoutReportTestJobIdImport } from './routes/_app/_auth/dashboard/_layout.report.$testJobId'
 
@@ -157,6 +160,24 @@ const AppAuthDashboardLayoutProjectProjectIdRoute =
     getParentRoute: () => AppAuthDashboardLayoutRoute,
   } as any)
 
+const AppAuthDashboardLayoutJourneysRoute =
+  AppAuthDashboardLayoutJourneysImport.update({
+    path: '/journeys',
+    getParentRoute: () => AppAuthDashboardLayoutRoute,
+  } as any)
+
+const AppAuthDashboardLayoutJourneyJourneyIdRoute =
+  AppAuthDashboardLayoutJourneyJourneyIdImport.update({
+    path: '/journey/$journeyId',
+    getParentRoute: () => AppAuthDashboardLayoutRoute,
+  } as any)
+
+const AppAuthDashboardLayoutTunnelsRoute =
+  AppAuthDashboardLayoutTunnelsImport.update({
+    path: '/tunnels',
+    getParentRoute: () => AppAuthDashboardLayoutRoute,
+  } as any)
+
 const AppAuthDashboardLayoutSettingsIndexRoute =
   AppAuthDashboardLayoutSettingsIndexImport.update({
     path: '/',
@@ -278,6 +299,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAuthDashboardLayoutProjectProjectIdImport
       parentRoute: typeof AppAuthDashboardLayoutImport
     }
+    '/_app/_auth/dashboard/_layout/journeys': {
+      id: '/_app/_auth/dashboard/_layout/journeys'
+      path: '/journeys'
+      fullPath: '/dashboard/journeys'
+      preLoaderRoute: typeof AppAuthDashboardLayoutJourneysImport
+      parentRoute: typeof AppAuthDashboardLayoutImport
+    }
+    '/_app/_auth/dashboard/_layout/journey/$journeyId': {
+      id: '/_app/_auth/dashboard/_layout/journey/$journeyId'
+      path: '/journey/$journeyId'
+      fullPath: '/dashboard/journey/$journeyId'
+      preLoaderRoute: typeof AppAuthDashboardLayoutJourneyJourneyIdImport
+      parentRoute: typeof AppAuthDashboardLayoutImport
+    }
+    '/_app/_auth/dashboard/_layout/tunnels': {
+      id: '/_app/_auth/dashboard/_layout/tunnels'
+      path: '/tunnels'
+      fullPath: '/dashboard/tunnels'
+      preLoaderRoute: typeof AppAuthDashboardLayoutTunnelsImport
+      parentRoute: typeof AppAuthDashboardLayoutImport
+    }
     '/_app/_auth/dashboard/_layout/history': {
       id: '/_app/_auth/dashboard/_layout/history'
       path: '/history'
@@ -349,6 +391,9 @@ export const routeTree = rootRoute.addChildren({
           AppAuthDashboardLayoutMonitorsRoute,
           AppAuthDashboardLayoutProjectsRoute,
           AppAuthDashboardLayoutProjectProjectIdRoute,
+          AppAuthDashboardLayoutJourneysRoute,
+          AppAuthDashboardLayoutJourneyJourneyIdRoute,
+          AppAuthDashboardLayoutTunnelsRoute,
           AppAuthDashboardLayoutHistoryRoute,
           AppAuthDashboardLayoutNewTestRoute,
           AppAuthDashboardLayoutSettingsRoute:
@@ -439,6 +484,9 @@ export const routeTree = rootRoute.addChildren({
         "/_app/_auth/dashboard/_layout/monitors",
         "/_app/_auth/dashboard/_layout/projects",
         "/_app/_auth/dashboard/_layout/project/$projectId",
+        "/_app/_auth/dashboard/_layout/journeys",
+        "/_app/_auth/dashboard/_layout/journey/$journeyId",
+        "/_app/_auth/dashboard/_layout/tunnels",
         "/_app/_auth/dashboard/_layout/history",
         "/_app/_auth/dashboard/_layout/new-test",
         "/_app/_auth/dashboard/_layout/settings",
@@ -479,6 +527,18 @@ export const routeTree = rootRoute.addChildren({
     },
     "/_app/_auth/dashboard/_layout/project/$projectId": {
       "filePath": "_app/_auth/dashboard/_layout.project.$projectId.tsx",
+      "parent": "/_app/_auth/dashboard/_layout"
+    },
+    "/_app/_auth/dashboard/_layout/journeys": {
+      "filePath": "_app/_auth/dashboard/_layout.journeys.tsx",
+      "parent": "/_app/_auth/dashboard/_layout"
+    },
+    "/_app/_auth/dashboard/_layout/journey/$journeyId": {
+      "filePath": "_app/_auth/dashboard/_layout.journey.$journeyId.tsx",
+      "parent": "/_app/_auth/dashboard/_layout"
+    },
+    "/_app/_auth/dashboard/_layout/tunnels": {
+      "filePath": "_app/_auth/dashboard/_layout.tunnels.tsx",
       "parent": "/_app/_auth/dashboard/_layout"
     },
     "/_app/_auth/dashboard/_layout/history": {
