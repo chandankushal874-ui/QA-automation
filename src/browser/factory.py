@@ -33,6 +33,62 @@ from src.core.endpoint_registry import EndpointRegistry, EndpointSource
 
 logger = logging.getLogger(__name__)
 
+# Curated device descriptors (Playwright emulation — NOT real hardware).
+# Name → {user_agent, viewport, device_scale_factor, is_mobile, has_touch}.
+# Sourced from Playwright's canonical device registry; kept as an explicit
+# allow-list so the API can advertise exactly what's supported.
+DEVICE_DESCRIPTORS: dict[str, dict[str, Any]] = {
+    "iPhone 13": {
+        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1",
+        "viewport": {"width": 390, "height": 844},
+        "device_scale_factor": 3,
+        "is_mobile": True,
+        "has_touch": True,
+        "default_browser": "webkit",
+    },
+    "Pixel 5": {
+        "user_agent": "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36",
+        "viewport": {"width": 393, "height": 851},
+        "device_scale_factor": 2.75,
+        "is_mobile": True,
+        "has_touch": True,
+        "default_browser": "chromium",
+    },
+    "iPad (gen 7)": {
+        "user_agent": "Mozilla/5.0 (iPad; CPU OS 13_2 like Mac OS X) AppleWebKit/605.1.15 "
+        "(KHTML, like Gecko) Version/13.0 Mobile/15E148 Safari/604.1",
+        "viewport": {"width": 810, "height": 1080},
+        "device_scale_factor": 2,
+        "is_mobile": True,
+        "has_touch": True,
+        "default_browser": "webkit",
+    },
+    "Desktop Chrome HiDPI": {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "viewport": {"width": 1280, "height": 720},
+        "device_scale_factor": 2,
+        "is_mobile": False,
+        "has_touch": False,
+        "default_browser": "chromium",
+    },
+    "Desktop Firefox": {
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+        "viewport": {"width": 1280, "height": 720},
+        "device_scale_factor": 1,
+        "is_mobile": False,
+        "has_touch": False,
+        "default_browser": "firefox",
+    },
+}
+
+
+def resolve_device(name: str) -> dict[str, Any] | None:
+    """Return the descriptor dict for a device name, or None if unknown."""
+    return DEVICE_DESCRIPTORS.get(name)
+
 
 @dataclass
 class BrowserConfig:
@@ -43,6 +99,7 @@ class BrowserConfig:
     viewport_width: int = 1280
     viewport_height: int = 720
     user_agent: str | None = None
+    device: str | None = None  # Playwright device descriptor name (emulation)
     ignore_https_errors: bool = False  # True for localhost
     storage_state: dict[str, Any] | None = None  # For session reuse
     extra_http_headers: dict[str, str] = field(default_factory=dict)
@@ -296,7 +353,21 @@ class BrowserContextFactory:
             "locale": config.locale,
         }
 
-        if config.user_agent:
+        # Device emulation: a known Playwright device descriptor overrides
+        # viewport/user-agent/touch/DPR. Unknown names fall back to explicit opts.
+        if config.device:
+            descriptor = resolve_device(config.device)
+            if descriptor:
+                context_options["user_agent"] = descriptor["user_agent"]
+                context_options["viewport"] = descriptor["viewport"]
+                if descriptor.get("device_scale_factor"):
+                    context_options["device_scale_factor"] = descriptor["device_scale_factor"]
+                if descriptor.get("is_mobile"):
+                    context_options["is_mobile"] = True
+                if descriptor.get("has_touch"):
+                    context_options["has_touch"] = True
+
+        if config.user_agent and "user_agent" not in context_options:
             context_options["user_agent"] = config.user_agent
 
         if config.storage_state:

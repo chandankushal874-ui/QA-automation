@@ -315,6 +315,7 @@ class CreateJobRequest(BaseModel):
     max_time_seconds: int = Field(default=3600, ge=60, le=86400)
     repo_url: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
+    device: str | None = Field(default=None, description="Playwright device descriptor name (emulation)")
 
     @field_validator("url")
     @classmethod
@@ -672,6 +673,18 @@ async def get_isolation_status(
     }
 
 
+@app.get("/api/devices")
+async def list_devices() -> dict[str, Any]:
+    """Advertise the curated Playwright device-emulation descriptors."""
+    from src.browser.factory import DEVICE_DESCRIPTORS
+
+    devices = [
+        {"name": name, **{k: v for k, v in desc.items() if k != "user_agent"}}
+        for name, desc in DEVICE_DESCRIPTORS.items()
+    ]
+    return {"devices": devices, "total": len(devices)}
+
+
 @app.get("/api/me/crawler-slots")
 async def get_crawler_slots(
     db: Session = Depends(get_db),
@@ -802,6 +815,7 @@ def _create_job_core(
     config: dict[str, Any],
     credentials: Any | None,
     http_request: Request | None,
+    device: str | None = None,
 ) -> JobResponse:
     """Single source of truth for crawl creation.
 
@@ -857,6 +871,8 @@ def _create_job_core(
         from src.core.tenant_isolation import apply_job_isolation_paths
 
         job_config = dict(config or {})
+        if device:
+            job_config["device"] = device
         job = Job(
             id=job_uuid,
             owner_id=owner.id,
@@ -1032,6 +1048,7 @@ async def create_job(
         config=request.config,
         credentials=request.credentials,
         http_request=http_request,
+        device=request.device,
     )
 
 

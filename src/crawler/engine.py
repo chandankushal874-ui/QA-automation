@@ -201,6 +201,8 @@ class CrawlEngine:
         # Headed mode: job config "show_browser" pops a visible browser window
         # on the server for this run (one window per job/browser engine).
         self.headless = not bool((self.job.config or {}).get("show_browser"))
+        # Device emulation (Playwright descriptor name), if requested.
+        self.device = (self.job.config or {}).get("device") or None
 
     async def _ensure_healthy_page(
         self,
@@ -238,6 +240,7 @@ class CrawlEngine:
         config = BrowserConfig(
             engine=browser,
             headless=self.headless,
+            device=getattr(self, "device", None),
             storage_state=storage_state,
             ignore_https_errors=True,
             enable_tracing=True,
