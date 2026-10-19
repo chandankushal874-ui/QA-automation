@@ -29,6 +29,8 @@ import { Route as AppAuthDashboardLayoutNewTestImport } from './routes/_app/_aut
 import { Route as AppAuthDashboardLayoutHistoryImport } from './routes/_app/_auth/dashboard/_layout.history'
 import { Route as AppAuthDashboardLayoutAuditImport } from './routes/_app/_auth/dashboard/_layout.audit'
 import { Route as AppAuthDashboardLayoutMonitorsImport } from './routes/_app/_auth/dashboard/_layout.monitors'
+import { Route as AppAuthDashboardLayoutProjectsImport } from './routes/_app/_auth/dashboard/_layout.projects'
+import { Route as AppAuthDashboardLayoutProjectProjectIdImport } from './routes/_app/_auth/dashboard/_layout.project.$projectId'
 import { Route as AppAuthDashboardLayoutSettingsIndexImport } from './routes/_app/_auth/dashboard/_layout.settings.index'
 import { Route as AppAuthDashboardLayoutReportTestJobIdImport } from './routes/_app/_auth/dashboard/_layout.report.$testJobId'
 
@@ -143,6 +145,18 @@ const AppAuthDashboardLayoutMonitorsRoute =
     getParentRoute: () => AppAuthDashboardLayoutRoute,
   } as any)
 
+const AppAuthDashboardLayoutProjectsRoute =
+  AppAuthDashboardLayoutProjectsImport.update({
+    path: '/projects',
+    getParentRoute: () => AppAuthDashboardLayoutRoute,
+  } as any)
+
+const AppAuthDashboardLayoutProjectProjectIdRoute =
+  AppAuthDashboardLayoutProjectProjectIdImport.update({
+    path: '/project/$projectId',
+    getParentRoute: () => AppAuthDashboardLayoutRoute,
+  } as any)
+
 const AppAuthDashboardLayoutSettingsIndexRoute =
   AppAuthDashboardLayoutSettingsIndexImport.update({
     path: '/',
@@ -250,6 +264,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAuthDashboardLayoutMonitorsImport
       parentRoute: typeof AppAuthDashboardLayoutImport
     }
+    '/_app/_auth/dashboard/_layout/projects': {
+      id: '/_app/_auth/dashboard/_layout/projects'
+      path: '/projects'
+      fullPath: '/dashboard/projects'
+      preLoaderRoute: typeof AppAuthDashboardLayoutProjectsImport
+      parentRoute: typeof AppAuthDashboardLayoutImport
+    }
+    '/_app/_auth/dashboard/_layout/project/$projectId': {
+      id: '/_app/_auth/dashboard/_layout/project/$projectId'
+      path: '/project/$projectId'
+      fullPath: '/dashboard/project/$projectId'
+      preLoaderRoute: typeof AppAuthDashboardLayoutProjectProjectIdImport
+      parentRoute: typeof AppAuthDashboardLayoutImport
+    }
     '/_app/_auth/dashboard/_layout/history': {
       id: '/_app/_auth/dashboard/_layout/history'
       path: '/history'
@@ -319,6 +347,8 @@ export const routeTree = rootRoute.addChildren({
         AppAuthDashboardLayoutRoute: AppAuthDashboardLayoutRoute.addChildren({
           AppAuthDashboardLayoutAuditRoute,
           AppAuthDashboardLayoutMonitorsRoute,
+          AppAuthDashboardLayoutProjectsRoute,
+          AppAuthDashboardLayoutProjectProjectIdRoute,
           AppAuthDashboardLayoutHistoryRoute,
           AppAuthDashboardLayoutNewTestRoute,
           AppAuthDashboardLayoutSettingsRoute:
@@ -407,6 +437,8 @@ export const routeTree = rootRoute.addChildren({
       "children": [
         "/_app/_auth/dashboard/_layout/audit",
         "/_app/_auth/dashboard/_layout/monitors",
+        "/_app/_auth/dashboard/_layout/projects",
+        "/_app/_auth/dashboard/_layout/project/$projectId",
         "/_app/_auth/dashboard/_layout/history",
         "/_app/_auth/dashboard/_layout/new-test",
         "/_app/_auth/dashboard/_layout/settings",
@@ -439,6 +471,14 @@ export const routeTree = rootRoute.addChildren({
     },
     "/_app/_auth/dashboard/_layout/monitors": {
       "filePath": "_app/_auth/dashboard/_layout.monitors.tsx",
+      "parent": "/_app/_auth/dashboard/_layout"
+    },
+    "/_app/_auth/dashboard/_layout/projects": {
+      "filePath": "_app/_auth/dashboard/_layout.projects.tsx",
+      "parent": "/_app/_auth/dashboard/_layout"
+    },
+    "/_app/_auth/dashboard/_layout/project/$projectId": {
+      "filePath": "_app/_auth/dashboard/_layout.project.$projectId.tsx",
       "parent": "/_app/_auth/dashboard/_layout"
     },
     "/_app/_auth/dashboard/_layout/history": {

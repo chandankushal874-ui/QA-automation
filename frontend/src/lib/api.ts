@@ -489,3 +489,170 @@ export async function resetFlaky(fingerprint: string) {
   if (!res.ok) throw new Error('Failed to reset');
   return res.json();
 }
+
+// ── Projects & visual-baseline diffing ──
+
+export interface ProjectRow {
+  id: string;
+  name: string;
+  slug: string;
+  base_url: string;
+  default_branch: string;
+  viewports: Array<{ width: number; height: number }>;
+  ignore_regions: Array<Record<string, unknown>>;
+  threshold: number;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BaselineRow {
+  id: string;
+  branch: string;
+  url: string;
+  browser: string;
+  image_hash: string;
+  status: string;
+  created_at: string | null;
+}
+
+export interface CompareResult {
+  url: string;
+  browser: string;
+  verdict: string;
+  mismatch_percentage?: number;
+  changed_pixels?: number;
+  total_pixels?: number;
+  width?: number;
+  height?: number;
+  threshold?: number;
+  ignore_regions_applied?: Array<{ x: number; y: number; width: number; height: number }>;
+  error?: string | null;
+  baseline_key?: string;
+  current_key?: string;
+  diff_key?: string;
+}
+
+export async function listProjects() {
+  const res = await authFetch('/api/projects');
+  if (!res.ok) throw new Error('Failed to list projects');
+  return res.json() as Promise<{ projects: ProjectRow[]; total: number }>;
+}
+
+export async function createProject(data: {
+  name: string;
+  base_url: string;
+  slug?: string;
+  default_branch?: string;
+  viewports?: Array<{ width: number; height: number }>;
+  ignore_regions?: Array<Record<string, unknown>>;
+  threshold?: number;
+}) {
+  const res = await authFetch('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to create project' }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : 'Failed to create project');
+  }
+  return res.json() as Promise<ProjectRow>;
+}
+
+export async function getProject(projectId: string) {
+  const res = await authFetch(`/api/projects/${projectId}`);
+  if (!res.ok) throw new Error('Project not found');
+  return res.json() as Promise<ProjectRow>;
+}
+
+export async function updateProject(projectId: string, patch: Record<string, unknown>) {
+  const res = await authFetch(`/api/projects/${projectId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update project' }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : 'Failed to update project');
+  }
+  return res.json() as Promise<ProjectRow>;
+}
+
+export async function deleteProject(projectId: string) {
+  const res = await authFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete project');
+  return res.json();
+}
+
+export async function captureBaseline(projectId: string, jobId: string, branch?: string) {
+  const res = await authFetch(`/api/projects/${projectId}/baseline`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_id: jobId, branch }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to capture baseline' }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : 'Failed to capture baseline');
+  }
+  return res.json() as Promise<{ branch: string; baselines_created: number; baselines: Array<Record<string, unknown>> }>;
+}
+
+export async function listBaselines(projectId: string, branch?: string) {
+  const qs = branch ? `?branch=${encodeURIComponent(branch)}` : '';
+  const res = await authFetch(`/api/projects/${projectId}/baselines${qs}`);
+  if (!res.ok) throw new Error('Failed to list baselines');
+  return res.json() as Promise<{ baselines: BaselineRow[]; total: number }>;
+}
+
+export async function compareProject(projectId: string, jobId: string, branch?: string) {
+  const res = await authFetch(`/api/projects/${projectId}/compare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_id: jobId, branch }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to compare' }));
+    throw new Error(typeof err.detail === 'string' ? err.detail : 'Failed to compare');
+  }
+  return res.json() as Promise<{
+    compare_id: string;
+    branch: string;
+    regressions: number;
+    matches: number;
+    new_baselines: number;
+    total: number;
+    results: CompareResult[];
+  }>;
+}
+
+export async function getCompare(projectId: string, compareId: string) {
+  const res = await authFetch(`/api/projects/${projectId}/compare/${compareId}`);
+  if (!res.ok) throw new Error('Compare not found');
+  return res.json() as Promise<{
+    compare_id: string;
+    branch: string;
+    job_id: string | null;
+    regressions: number;
+    matches: number;
+    new_baselines: number;
+    status: string;
+    created_at: string | null;
+    results: CompareResult[];
+  }>;
+}
+
+export async function approveCompare(projectId: string, compareId: string) {
+  const res = await authFetch(`/api/projects/${projectId}/compare/${compareId}/approve`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to approve compare');
+  return res.json() as Promise<{ status: string; promoted: number }>;
+}
+
+// Fetch an S3 artifact through the tenant-checked proxy, returning a blob URL.
+// (The proxy requires an Authorization header, so we can't use a plain <img src>.)
+export async function fetchArtifactBlobUrl(projectId: string, key: string): Promise<string> {
+  const res = await authFetch(`/api/projects/${projectId}/artifact/${encodeURIComponent(key)}`);
+  if (!res.ok) throw new Error('Artifact not found');
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
