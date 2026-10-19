@@ -656,6 +656,14 @@ class Journey(Base):
     __tablename__ = "journeys"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Direct owner reference for tenant isolation (anti-enumeration list/detail).
+    # Nullable for legacy rows created before this column existed; populated on
+    # creation and backfilled from job.owner_id when present.
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform_users.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     job_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
     )
@@ -694,6 +702,38 @@ class Journey(Base):
     __table_args__ = (
         Index("ix_journeys_job_status", "job_id", "status"),
         Index("ix_journeys_priority", "job_id", "priority"),
+        Index("ix_journeys_owner_id", "owner_id"),
+    )
+
+
+class JourneyRun(Base):
+    """One execution of a journey (a journey can be re-run).
+
+    ``results`` is the per-browser/step outcome payload returned by the runner;
+    ``status`` tracks the run lifecycle independent of the parent Journey's
+    aggregate status.
+    """
+
+    __tablename__ = "journey_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    journey_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("journeys.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False)
+    # queued | running | passed | failed | error
+    results: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict, nullable=False)
+    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    journey: Mapped[Journey] = relationship()
+
+    __table_args__ = (
+        Index("ix_journey_runs_journey", "journey_id", "created_at"),
     )
 
 

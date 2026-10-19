@@ -186,6 +186,39 @@ def _ensure_monitor_jira_columns() -> None:
         logger.warning("Could not ensure monitor jira columns: %s", e)
 
 
+def _ensure_journey_owner_column() -> None:
+    """Add journeys.owner_id + stop_on_failure columns on legacy DBs.
+
+    create_all never ALTERs existing tables; journeys predates the owner_id
+    column, so backfill it from jobs.owner_id where possible.
+    """
+    try:
+        from sqlalchemy import inspect, text
+
+        insp = inspect(engine)
+        if "journeys" not in insp.get_table_names():
+            return
+        cols = {c["name"] for c in insp.get_columns("journeys")}
+        if "owner_id" not in cols:
+            coltype = "VARCHAR(36)" if engine.dialect.name == "sqlite" else "UUID"
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE journeys ADD COLUMN owner_id {coltype}"))
+            logger.info("Added journeys.owner_id column")
+        # Backfill owner_id from jobs.owner_id for any row missing it.
+        # UPDATE...FROM is Postgres syntax; use a portable correlated subquery.
+        with engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE journeys SET owner_id = "
+                    "(SELECT jobs.owner_id FROM jobs WHERE jobs.id = journeys.job_id) "
+                    "WHERE journeys.owner_id IS NULL"
+                )
+            )
+    except Exception as e:
+        logger.warning("Could not ensure journeys.owner_id column: %s", e)
+
+
+_ensure_journey_owner_column()
 _ensure_monitor_jira_columns()
 
 # Wire auth module to the same SessionLocal
@@ -238,6 +271,11 @@ app.include_router(flaky_router)
 from src.api.projects import router as projects_router  # noqa: E402
 
 app.include_router(projects_router)
+
+# Multi-step journeys (owner-scoped; additive)
+from src.api.journeys import router as journeys_router  # noqa: E402
+
+app.include_router(journeys_router)
 with contextlib.suppress(Exception):
     start_scheduler(app)
 
