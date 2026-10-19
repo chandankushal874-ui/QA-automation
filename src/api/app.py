@@ -20,10 +20,11 @@ from urllib.parse import urlparse
 import redis
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.websockets import WebSocket
 
 from src.api.auth import (
     bind_get_db,
@@ -276,6 +277,26 @@ app.include_router(projects_router)
 from src.api.journeys import router as journeys_router  # noqa: E402
 
 app.include_router(journeys_router)
+
+# Self-hosted tunnels (owner-scoped; additive)
+from src.api.tunnels import agent_ws, relay_http  # noqa: E402
+from src.api.tunnels import router as tunnels_router  # noqa: E402
+
+app.include_router(tunnels_router)
+
+
+@app.websocket("/tunnel/agent/{token}")
+async def _tunnel_agent_ws(ws: WebSocket, token: str, db: Session = Depends(get_db)) -> None:
+    await agent_ws(ws, token, db)
+
+
+@app.api_route("/t/{tunnel_token}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])
+async def _tunnel_relay_http(
+    tunnel_token: str, path: str, request: Request, db: Session = Depends(get_db)
+) -> Response:
+    return await relay_http(tunnel_token, request, path, db)
+
+
 with contextlib.suppress(Exception):
     start_scheduler(app)
 

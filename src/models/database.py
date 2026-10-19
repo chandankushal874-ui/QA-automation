@@ -340,12 +340,47 @@ class VisualCompare(Base):
     )
 
 
+class Tunnel(Base):
+    """A self-hosted reverse tunnel for exposing a local/staging target.
+
+    The owner provisions a token; an agent (running on the owner's machine or
+    CI) opens an outbound WebSocket authenticated with that token's hash. The
+    relay maps inbound `GET/POST /t/<token>/<path>` requests back over the
+    agent socket to the local target. Ephemeral by default (idle TTL).
+    """
+
+    __tablename__ = "tunnels"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Public routing token (short, URL-safe); the agent authenticates with the
+    # full cbtp_ token whose SHA-256 is stored in token_hash.
+    tunnel_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    target_origin: Mapped[str] = mapped_column(String(2048), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="idle", nullable=False)
+    # idle | connected | expired | revoked
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_tunnels_owner_id", "owner_id"),
+        Index("ix_tunnels_tunnel_token", "tunnel_token", unique=True),
+    )
+
+
 class MonitorSchedule(Base):
     """A recurring crawl schedule (site monitoring).
 
-    Owned by a platform user; fired jobs inherit owner_id isolation and
-    the owner's concurrent-slot limits. next_run_at is computed after each
-    fire, so schedules survive API restarts (state lives in the DB, not RAM).
+    Owned by a platform user; fired jobs inherit owner_id isolation and the
+    owner's concurrent-slot limits. next_run_at is computed after each fire,
+    so schedules survive API restarts (state lives in the DB, not RAM).
     """
 
     __tablename__ = "monitor_schedules"
