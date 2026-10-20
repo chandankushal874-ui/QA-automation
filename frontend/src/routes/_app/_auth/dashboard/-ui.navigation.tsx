@@ -16,6 +16,7 @@ import {
   Layers,
   Route,
   Link2,
+  BarChart3,
 } from "lucide-react";
 import { cn, useSignOut } from "@/utils/misc";
 import { ThemeSwitcher } from "@/ui/theme-switcher";
@@ -52,6 +53,7 @@ export function Navigation({ user }: { user: User }) {
   const isProjectsPath = matchRoute({ to: "/dashboard/projects" });
   const isJourneysPath = matchRoute({ to: "/dashboard/journeys" });
   const isTunnelsPath = matchRoute({ to: "/dashboard/tunnels" });
+  const isAnalyticsPath = matchRoute({ to: "/dashboard/analytics" });
   const isDocsPath = matchRoute({ to: "/docs" });
   const isAdmin = user?.role === "admin";
 
@@ -360,6 +362,23 @@ export function Navigation({ user }: { user: User }) {
           >
             <Link2 className="h-4 w-4" />
             Tunnels
+          </Link>
+        </div>
+        <div
+          className={cn(
+            "flex h-12 items-center border-b-2",
+            isAnalyticsPath ? "border-primary" : "border-transparent",
+          )}
+        >
+          <Link
+            to="/dashboard/analytics"
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "text-primary/80 gap-1.5",
+            )}
+          >
+            <BarChart3 className="h-4 w-4" />
+            Analytics
           </Link>
         </div>
       </div>

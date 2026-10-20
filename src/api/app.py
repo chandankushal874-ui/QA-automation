@@ -284,6 +284,11 @@ from src.api.tunnels import router as tunnels_router  # noqa: E402
 
 app.include_router(tunnels_router)
 
+# Cross-job analytics (owner-scoped; additive)
+from src.api.analytics import router as analytics_router  # noqa: E402
+
+app.include_router(analytics_router)
+
 
 @app.websocket("/tunnel/agent")
 async def _tunnel_agent_ws(ws: WebSocket, db: Session = Depends(get_db)) -> None:

@@ -793,3 +793,69 @@ export async function revokeTunnel(tunnelId: string) {
   if (!res.ok) throw new Error('Failed to revoke tunnel');
   return res.json();
 }
+
+// ── Analytics ──
+
+export interface TrendsSeriesPoint {
+  date: string;
+  crawls: number;
+  completed: number;
+  failed: number;
+  issues: number;
+  blocking: number;
+  functional: number;
+  visual: number;
+  advisory: number;
+  pages_visited: number;
+}
+
+export async function getAnalyticsTrends(days = 30) {
+  const res = await authFetch(`/api/analytics/trends?days=${days}`);
+  if (!res.ok) throw new Error('Failed to load trends');
+  return res.json() as Promise<{
+    days: number;
+    series: TrendsSeriesPoint[];
+    totals: { crawls: number; issues: number; pages_visited: number; pass_rate: number | null };
+  }>;
+}
+
+export async function getAnalyticsIssues(days = 30) {
+  const res = await authFetch(`/api/analytics/issues?days=${days}`);
+  if (!res.ok) throw new Error('Failed to load issue breakdowns');
+  return res.json() as Promise<{
+    days: number;
+    by_severity: Record<string, number>;
+    by_category: Record<string, number>;
+    top_recurring: Array<{ fingerprint: string; title: string; occurrences: number; severity: string; last_seen: string | null }>;
+  }>;
+}
+
+export async function getAnalyticsTargets(days = 30) {
+  const res = await authFetch(`/api/analytics/targets?days=${days}`);
+  if (!res.ok) throw new Error('Failed to load target rollups');
+  return res.json() as Promise<{
+    days: number;
+    total: number;
+    targets: Array<{
+      url: string;
+      crawls: number;
+      completed: number;
+      issues: number;
+      distinct_fingerprints: number;
+      avg_issues_per_crawl: number;
+      last_crawl_status: string | null;
+      last_crawled_at: string | null;
+    }>;
+  }>;
+}
+
+export async function getAnalyticsFlaky(days = 30) {
+  const res = await authFetch(`/api/analytics/flaky?days=${days}`);
+  if (!res.ok) throw new Error('Failed to load flaky stats');
+  return res.json() as Promise<{
+    days: number;
+    totals: { registry_size: number; quarantined: number; suspected: number; new_in_window: number };
+    series: Array<{ date: string; new: number }>;
+    top_flaky: Array<{ fingerprint: string; title: string; status: string; flip_rate: number; samples: number }>;
+  }>;
+}
