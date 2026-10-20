@@ -285,9 +285,9 @@ from src.api.tunnels import router as tunnels_router  # noqa: E402
 app.include_router(tunnels_router)
 
 
-@app.websocket("/tunnel/agent/{token}")
-async def _tunnel_agent_ws(ws: WebSocket, token: str, db: Session = Depends(get_db)) -> None:
-    await agent_ws(ws, token, db)
+@app.websocket("/tunnel/agent")
+async def _tunnel_agent_ws(ws: WebSocket, db: Session = Depends(get_db)) -> None:
+    await agent_ws(ws, db)
 
 
 @app.api_route("/t/{tunnel_token}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"])

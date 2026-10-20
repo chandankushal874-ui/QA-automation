@@ -64,7 +64,7 @@ function TunnelsPage() {
           </h2>
           <p className="mb-4 text-sm text-primary/60">
             Provisions a one-time agent token. Run the agent locally:
-            <code className="mx-1 rounded bg-secondary px-1.5 py-0.5 text-xs">python -m src.tunnel.agent --relay wss://&lt;host&gt;/tunnel/agent --token &lt;agent_token&gt; --target http://localhost:3000</code>
+            <code className="mx-1 rounded bg-secondary px-1.5 py-0.5 text-xs">python -m src.tunnel.agent --relay ws://&lt;host&gt;:8001/tunnel/agent --token &lt;agent_token&gt; --target http://localhost:3000</code>
           </p>
           <form
             className="flex flex-col gap-3 md:max-w-2xl"

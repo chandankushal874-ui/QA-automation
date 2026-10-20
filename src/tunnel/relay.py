@@ -13,9 +13,11 @@ frames being stolen across requests.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from src.tunnel.protocol import (
@@ -46,12 +48,10 @@ class TunnelSession:
     connection: Connection
     connected_at: float = 0.0
     last_active_at: float = 0.0
-    _pending: dict[str, asyncio.Future] = None  # type: ignore[assignment]
+    _pending: dict[str, asyncio.Future] = field(default_factory=dict)
     _reader: asyncio.Task | None = None
     _closed: bool = False
-
-    def __post_init__(self) -> None:
-        self._pending = {}
+    _on_closed: Callable[[], None] | None = None
 
     def touch(self) -> None:
         self.last_active_at = time.monotonic()
@@ -64,9 +64,23 @@ class Relay:
         self._sessions: dict[str, TunnelSession] = {}
         self._idle_timeout = idle_timeout
 
-    def register(self, tunnel_token: str, connection: Connection) -> TunnelSession:
-        """Attach a freshly-authenticated agent socket and start its reader."""
-        session = TunnelSession(tunnel_token=tunnel_token, connection=connection, connected_at=time.monotonic())
+    def register(
+        self,
+        tunnel_token: str,
+        connection: Connection,
+        on_closed: Callable[[], None] | None = None,
+    ) -> TunnelSession:
+        """Attach a freshly-authenticated agent socket and start its reader.
+
+        ``on_closed`` (if given) fires when the reader loop ends (disconnect),
+        unblocking the WS handler that owns this socket.
+        """
+        session = TunnelSession(
+            tunnel_token=tunnel_token,
+            connection=connection,
+            connected_at=time.monotonic(),
+            _on_closed=on_closed,
+        )
         session.touch()
         self._sessions[tunnel_token] = session
         session._reader = asyncio.create_task(self._reader_loop(session))
@@ -96,7 +110,10 @@ class Relay:
         return len(self._sessions)
 
     async def _reader_loop(self, session: TunnelSession) -> None:
-        """Pull frames off the socket and resolve the matching future."""
+        """Pull frames off the socket and resolve the matching future.
+
+        This task is the SOLE consumer of inbound frames for its session.
+        """
         try:
             while not session._closed:
                 raw = await session.connection.recv()
@@ -119,6 +136,9 @@ class Relay:
             for _rid, fut in list(session._pending.items()):
                 if not fut.done():
                     fut.set_exception(ConnectionError("agent disconnected"))
+            if session._on_closed is not None:
+                with contextlib.suppress(Exception):
+                    session._on_closed()
 
     async def request(
         self,

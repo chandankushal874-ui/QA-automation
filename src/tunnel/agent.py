@@ -66,6 +66,8 @@ async def run(relay_url: str, token: str, target_origin: str) -> None:
                     logger.info("tunnel agent connected to %s", relay_url)
                     async for message in ws:
                         await handle_frame(ws, message, target_origin, session)
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 logger.warning("agent connection lost (%s) — reconnecting in 3s", e)
                 await asyncio.sleep(3)
@@ -74,7 +76,7 @@ async def run(relay_url: str, token: str, target_origin: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description="CBTP self-hosted tunnel agent")
     ap.add_argument("--relay", required=True, help="Relay WS URL, e.g. wss://host/tunnel/agent")
-    ap.add_argument("--token", required=True, help="CBTP API token (cbtp_...)")
+    ap.add_argument("--token", required=True, help="CBTP agent token (cbtp_...)")
     ap.add_argument("--target", required=True, help="Local target origin, e.g. http://localhost:3000")
     args = ap.parse_args()
 

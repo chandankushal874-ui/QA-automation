@@ -11,6 +11,7 @@ token also kills its tunnel).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import secrets
@@ -155,11 +156,21 @@ class _WSConnection(Connection):
         await self._ws.close()
 
 
-async def agent_ws(ws: WebSocket, token: str, db: Session) -> None:
-    """Authenticate an agent and keep its socket registered for the relay."""
+async def agent_ws(ws: WebSocket, db: Session) -> None:
+    """Authenticate an agent (Bearer header) and keep its socket registered.
+
+    The relay's per-session reader task is the SOLE consumer of inbound frames;
+    this handler must not receive() concurrently. It stays alive until the
+    reader ends (disconnect) and signals via the ``closed`` event.
+    """
     await ws.accept()
-    token_hash = _hash(token)
-    tunnel = db.query(Tunnel).filter_by(token_hash=token_hash).first()
+
+    auth = ws.headers.get("authorization", "")
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    tunnel = None
+    if token:
+        token_hash = _hash(token)
+        tunnel = db.query(Tunnel).filter_by(token_hash=token_hash).first()
     if not tunnel:
         await ws.send_text('{"type":"error","detail":"invalid token"}')
         await ws.close(code=4401)
@@ -169,21 +180,31 @@ async def agent_ws(ws: WebSocket, token: str, db: Session) -> None:
     tunnel.last_active_at = datetime.now(UTC)
     db.commit()
 
+    closed = asyncio.Event()
     conn = _WSConnection(ws)
-    _relay.register(tunnel.tunnel_token, conn)
+    _relay.register(tunnel.tunnel_token, conn, on_closed=closed.set)
     try:
-        # Keep the socket open: the relay's reader task pulls frames. We just
-        # idle until the client disconnects.
-        while True:
-            msg = await ws.receive()
-            if msg["type"] == "websocket.disconnect":
-                break
+        # Idle until the relay reader detects disconnect and signals us.
+        await closed.wait()
     except Exception:
         pass
     finally:
         _relay.unregister(tunnel.tunnel_token)
-        tunnel.status = "idle"
-        db.commit()
+        # Short-lived session for the status flip (the handler's session is
+        # released with the response lifecycle).
+        try:
+            from src.api.app import SessionLocal
+
+            s2 = SessionLocal()
+            try:
+                row = s2.query(Tunnel).filter_by(id=tunnel.id).first()
+                if row is not None and row.status == "connected":
+                    row.status = "idle"
+                    s2.commit()
+            finally:
+                s2.close()
+        except Exception:
+            pass
 
 
 async def relay_http(tunnel_token: str, request: Request, path: str, db: Session) -> Response:
