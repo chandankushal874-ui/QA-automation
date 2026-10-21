@@ -35,3 +35,4 @@ stack.orchestrator.log
 # OS/editor
 .DS_Store
 Thumbs.db
+.fpstudy*_job.json

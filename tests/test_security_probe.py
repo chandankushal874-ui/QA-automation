@@ -290,9 +290,11 @@ ARCHETYPES = [
         {
             "/.env": ProbeVerdict.FALSE_POSITIVE,
             "/admin": ProbeVerdict.SPA_FALLBACK,
-            "/robots.txt": ProbeVerdict.CONFIRMED_EXPOSED,
+            # robots.txt is an expected-public file: a 200 is BENIGN posture,
+            # never an Issue (false-positive study fix — was CONFIRMED_EXPOSED).
+            "/robots.txt": ProbeVerdict.BENIGN,
         },
-        1,
+        0,
     ),
     (
         "auth-walled site",

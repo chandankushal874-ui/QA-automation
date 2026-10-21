@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
@@ -391,7 +392,9 @@ async def _collect_all_sitemap_urls(base_url: str) -> set[str]:
         # Extract regular URL entries (<url><loc>...</loc></url>)
         locs = re.findall(r"<loc>(.*?)</loc>", text, re.IGNORECASE)
         for loc in locs:
-            loc = loc.strip()
+            # Sitemap XML legally encodes & as &amp; (and numeric entities);
+            # leaving the entity in the URL corrupts every downstream request.
+            loc = html_unescape(loc).strip()
             # Skip entries that are themselves sitemaps (already queued above)
             if "sitemap" in loc.lower() and loc.endswith(".xml"):
                 if loc not in visited_sitemaps:

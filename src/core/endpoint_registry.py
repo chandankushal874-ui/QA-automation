@@ -20,6 +20,7 @@ New endpoints trigger re-crawling.
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -394,6 +395,12 @@ class EndpointRegistry:
         updates metadata but returns is_new=False.
         Filters out out-of-scope and noise/telemetry URLs.
         """
+        # 0. Unescape HTML entities that leaked into URLs from raw content
+        # (e.g. hrefs extracted by regex from JS/comments where "&amp;"
+        # was never decoded). A literal entity in a URL is always corruption.
+        if "&" in url:
+            url = html.unescape(url)
+
         # Resolve relative URLs
         if self._base_url and not url.startswith(("http://", "https://", "ws://", "wss://")):
             url = urljoin(self._base_url, url)

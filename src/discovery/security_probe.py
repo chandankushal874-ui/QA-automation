@@ -244,6 +244,27 @@ class ProbeVerdict(StrEnum):
     PROTECTED = "protected"  # 401/403
     SERVER_ERROR = "server_error"  # 5xx
     NETWORK_ERROR = "network_error"  # Request failed
+    BENIGN = "benign"  # Expected-public file (robots.txt, sitemap.xml, …) — never an Issue
+
+
+# Paths that are intentionally public on virtually every site. A 200 here is
+# normal security posture, NOT a finding. (False-positive study: 7/15 findings
+# on a clean site were exactly these.)
+BENIGN_PROBE_PATHS: frozenset[str] = frozenset(
+    {
+        "/robots.txt",
+        "/sitemap.xml",
+        "/sitemap_index.xml",
+        "/favicon.ico",
+        "/ads.txt",
+        "/security.txt",
+        "/.well-known/security.txt",
+        "/humans.txt",
+        "/llms.txt",
+        "/LICENSE",
+        "/status",
+    }
+)
 
 
 class SPAType(StrEnum):
@@ -1021,6 +1042,24 @@ def _probe_one(
 
     # ── Status is 2xx — now validate to eliminate SPA false positives ──
 
+    # Expected-public files (robots.txt, sitemap.xml, …): a 200 is normal
+    # security posture, not a finding. Verdict BENIGN skips Issue creation
+    # entirely (the probe result is still recorded for the report table).
+    if path in BENIGN_PROBE_PATHS:
+        return ProbeResult(
+            path=path,
+            url=url,
+            status_code=status_code,
+            exposed=False,
+            protected=False,
+            severity=IssueSeverity.ADVISORY,
+            description=description,
+            verdict=ProbeVerdict.BENIGN,
+            content_type=content_type,
+            body_size=body_size,
+            validation_reason="Expected-public file — normal posture, not a finding",
+        )
+
     # If not SPA mode, trust the status code (traditional server returns
     # real 404s for non-existent paths, so a 200 means the file exists).
     if not spa_mode:
@@ -1198,7 +1237,7 @@ def run_security_probe(
                 all_results.append(result)
 
                 # Log false positives at debug level for audit trail
-                if result.verdict in (ProbeVerdict.FALSE_POSITIVE, ProbeVerdict.SPA_FALLBACK):
+                if result.verdict in (ProbeVerdict.FALSE_POSITIVE, ProbeVerdict.SPA_FALLBACK, ProbeVerdict.BENIGN):
                     false_positive_count += 1
                     logger.debug(
                         f"Security probe: {path} → {result.verdict.value.upper()} "

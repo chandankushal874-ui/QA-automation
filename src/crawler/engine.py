@@ -95,6 +95,107 @@ def _find_test_file(source_file: str, repo_dir: str) -> str | None:
     return None
 
 
+# Known cross-origin iframe origins whose console noise is the third
+# party's code, not the site under test. Challenge/CDN widgets log benign
+# environment probes ("No available adapters") that look like errors.
+_THIRD_PARTY_FRAME_ORIGINS: tuple[str, ...] = (
+    "challenges.cloudflare.com",
+    "cloudflareinsights.com",
+    "static.cloudflareinsights.com",
+    "www.google.com",
+    "www.recaptcha.net",
+    "gstatic.com",
+    "accounts.google.com",
+    "cdn.ampproject.org",
+    "platform.twitter.com",
+    "connect.facebook.net",
+    "assets.pinterest.com",
+)
+
+
+def _frame_origin_from_location(source_location: str) -> str:
+    """Extract the frame's URL from a 'url:line:col' source location.
+
+    The URL may itself contain a port and a query with colons, so we can't
+    naive-split on ':' — instead strip the trailing ':line:col' if present
+    and otherwise treat the whole string as the URL.
+    """
+    loc = source_location.strip()
+    if not loc:
+        return ""
+    # Trailing ':<digits>:<digits>' (and optional trailing ':' with empty col)
+    import re as _re
+
+    loc = _re.sub(r":\d+:\d+$", "", loc)
+    loc = _re.sub(r":\d+:$", "", loc)
+    return loc
+
+
+def _is_third_party_frame_origin(source_location: str, site_url: str) -> bool:
+    """True when a console entry's source_location points at a third-party frame.
+
+    ``source_location`` is "url:line:col" where url is the emitting frame's
+    document/script URL. If its origin differs from the site under test AND
+    matches a known third-party widget origin, the message is theirs, not the
+    site's — skip it (false-positive study: Turnstile's "No available
+    adapters." was reported as a site console error).
+    """
+    if not source_location:
+        return False
+    frame_url = _frame_origin_from_location(source_location)
+    if not frame_url:
+        return False
+    if frame_url.startswith("//"):
+        frame_url = "https:" + frame_url
+    if not frame_url.startswith(("http://", "https://")):
+        return False
+    try:
+        frame_host = urlparse(frame_url).netloc.lower()
+    except ValueError:
+        return False
+    if not frame_host:
+        return False
+    # Same registered domain as the site → first-party (subdomains count).
+    site_host = urlparse(site_url).netloc.lower()
+    if (
+        frame_host == site_host
+        or frame_host.endswith("." + site_host)
+        or site_host.endswith("." + frame_host)
+    ):
+        return False
+    return any(
+        frame_host == origin or frame_host.endswith("." + origin)
+        for origin in _THIRD_PARTY_FRAME_ORIGINS
+    )
+
+
+def _message_references_third_party_origin(message: str, site_url: str) -> bool:
+    """True when a network/resource-failure message embeds a known third-party URL.
+
+    Playwright request-failure entries put the failing URL in the message text
+    ("GET https://challenges.cloudflare.com/..."). If that URL's origin is a
+    known third-party widget origin (challenge/CDN/analytics), the failure is
+    theirs, not the site's.
+    """
+    if not message:
+        return False
+    import re as _re
+
+    for match in _re.findall(r"https?://([^/\s:]+)", message):
+        host = match.lower()
+        site_host = urlparse(site_url).netloc.lower()
+        if (
+            host == site_host
+            or host.endswith("." + site_host)
+            or site_host.endswith("." + host)
+        ):
+            continue
+        for origin in _THIRD_PARTY_FRAME_ORIGINS:
+            if host == origin or host.endswith("." + origin):
+                return True
+    return False
+
+
 def is_destructive_action(
     url: str, method: str = "GET", selector: str | None = None, element_text: str | None = None
 ) -> bool:
@@ -1650,6 +1751,24 @@ class CrawlEngine:
                         }
                     )
                     spa_config["spa_route_404s"] = spa_404s
+                continue
+
+            # Third-party frame-origin gate: console errors emitted from
+            # cross-origin iframes (Cloudflare Turnstile, reCAPTCHA, analytics,
+            # embedded widgets) are the third party's code, not the site's.
+            # A headless browser without e.g. WebAuthn transports makes those
+            # libraries log benign noise ("No available adapters"). Recording
+            # them as site issues is a false positive — skip them.
+            if _is_third_party_frame_origin(entry.source_location, self.job.url) or (
+                entry.category in (ConsoleCategory.NETWORK_FAILURE, ConsoleCategory.RESOURCE_LOAD_FAILURE)
+                and _message_references_third_party_origin(entry.message, self.job.url)
+            ):
+                logger.debug(
+                    "Skipping third-party console %s from %s: %s",
+                    entry.severity.value,
+                    entry.source_location.split(":")[0][:80],
+                    entry.message[:80],
+                )
                 continue
 
             # Deduplicate by fingerprint

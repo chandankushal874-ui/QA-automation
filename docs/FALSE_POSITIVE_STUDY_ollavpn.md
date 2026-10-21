@@ -71,3 +71,50 @@
 - `scripts/verify_findings.py` — per-finding adjudication
 - `scripts/trace_phantom_urls.py`, `scripts/find_phantom_posts.py` — phantom-URL root-cause tracing
 - `scripts/poll_fpstudy.py`, `scripts/fetch_fpstudy_report.py` — crawl harness
+## Post-fix validation (same crawl, same site, fixes deployed)
+
+Re-ran the identical crawl after implementing P0+P1:
+
+| Run | Findings | True positives | False positives | Precision |
+|---|---|---|---|---|
+| Before fixes | 15 | 2 clean (+5 flawed-but-real) | 8 | 47% |
+| After fixes | 5 | 5 | 0 | 100% |
+
+The 5 remaining findings are all sitemap-declared URLs that genuinely return
+404 (`/tags/Security/`, `/tags/Privacy/`, `/tags/WireGuard/`, `/tags/streaming/`,
+`/author/vikas-swami/` - declared in the hidden `sitemap-0.xml`, reachable only
+via sitemap-index recursion). Worker log: `264/269 OK, 5 missing`.
+
+### Correction to the original study (root-cause depth)
+
+The original study mislabeled findings #3-#7 as "PARTIAL - not in sitemap".
+Deeper tracing found a fifth sitemap (`sitemap-0.xml`) that the naive manual
+audit missed - it is reachable only via `<sitemap><loc>` recursion from
+`sitemap-index.xml`. Those capitalized/entity tag URLs ARE genuinely
+sitemap-declared and DO 404 - true positives all along, emitted with a
+correct label. The entity-corruption finding stands (the two `&amp;`-encoded
+URLs return 200 once unescaped, so pre-fix they were falsely reported as
+404s). Revised original run: 7 true signals (2 corrupted by the entity bug),
+8 false positives. The platform's sitemap-index recursion (finding URLs my
+manual audit missed entirely) is a genuine recall advantage.
+
+### Fixes implemented and verified in the deployed stack
+
+1. P0 - Security probe BENIGN allowlist (security_probe.py): robots.txt,
+   sitemap.xml, favicon.ico, humans.txt, security.txt, llms.txt, ads.txt,
+   LICENSE, /status get a BENIGN verdict - probed for visibility, never an
+   Issue. (-7 FPs)
+2. P0 - HTML entity unescaping: endpoint_registry.add() unescapes any URL
+   containing `&`; sitemap `<loc>` extraction unescapes at parse time. The two
+   `&amp;` URLs now resolve to their real 200 pages. (-2 corrupted findings)
+3. P1 - Console third-party frame-origin gate (engine.py): console entries
+   whose source_location points at a known third-party widget origin
+   (Turnstile, reCAPTCHA, insights, social embeds) are skipped; plus a message
+   gate for network-failure entries embedding third-party URLs. (-1 FP, plus
+   the Turnstile fetch failure seen in the second run)
+4. P1 - First-party subdomain awareness: same registered domain
+   (login.ollavpn.com <-> ollavpn.com) is never filtered - verified by tests.
+
+Tests: tests/test_false_positive_fixes.py (18 tests covering all gates); full
+suite 362 passed. Deployed stack rebuilt; validation crawl: 5/5 true
+positives, 0 false positives, console summary all-zero.
