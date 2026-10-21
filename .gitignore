@@ -36,3 +36,5 @@ stack.orchestrator.log
 .DS_Store
 Thumbs.db
 .fpstudy*_job.json
+.my_audit.json
+.platform_report*.json
